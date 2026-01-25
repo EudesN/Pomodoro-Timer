@@ -70,7 +70,6 @@ class App(ctk.CTk):
                                              border_spacing=10, hover_color="#BA4949", text_color="white")
         self.add_task_button.pack(side="bottom", fill="x", padx=40, pady=20)
 
-
         self.task_label = ctk.CTkLabel(self, text="Tasks", font=("Arial", 18, "bold"), text_color="white")
         self.task_label.pack(pady=(5, 5))
 
@@ -78,12 +77,14 @@ class App(ctk.CTk):
         self.task_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.task_container.pack(fill="both", expand=True, padx=20, pady=5)
 
+        self.task_settings_button = ctk.CTkButton(self, text = "Task Settings", command= self.open_tasks_settings,
+                                                  width= 100, fg_color= "white")
+        self.task_settings_button.place(relx=0.85, rely=0.59, anchor="center")
 
         self.update_timer_label()
         self.highlight_button("Work")
 
-
-    #def switch_active_task(self):
+    # def switch_active_task(self):
 
     def change_timer_mode(self, mode):
         self.pomodoro.set_current_mode(mode)
@@ -152,6 +153,17 @@ class App(ctk.CTk):
     def open_add_new_task(self):
         TaskWindow(self, self.task_manager)
 
+    def open_tasks_settings(self):
+        TaskSettings(self, self.task_manager)
+
+    def remove_task(self, index):
+
+
+
+        self.task_manager.remove_task(index)
+
+        self.refresh_task_list()
+
     def refresh_task_list(self):
         for widget in self.task_container.winfo_children():
             widget.destroy()
@@ -173,6 +185,10 @@ class App(ctk.CTk):
         card = ctk.CTkFrame(self.task_container, fg_color="white", corner_radius=10, height=50,
                             border_color=current_border_color, border_width=current_border_width)
         card.pack(fill="x", pady=5)
+
+        remove_task_button = ctk.CTkButton(master= card, text = "Remove", command= lambda: self.remove_task(index),
+                                                  width= 100, fg_color= "white", text_color= "#BA4949", hover_color="#f0f0f0")
+        remove_task_button.pack(side="right", padx=5)
 
         # Ícone
         if task.completed:
@@ -306,6 +322,26 @@ class TaskWindow(ctk.CTkToplevel):
 
         else:
             print("Erro: Digite um título e número válido")
+
+class TaskSettings(ctk.CTkToplevel):
+    def __init__(self, main_window, task_manager):
+        super().__init__(main_window)
+        self.main_window = main_window
+        self.task_manager = task_manager
+
+        self.title("Tasks Settings")
+        self.geometry("300x250")
+        self.attributes("-topmost", True)
+        self.grab_set()
+
+        self.clear_finished_button = ctk.CTkButton(self, text="Clear finished tasks", command= self.clear_finished,
+                                         fg_color="white",text_color="black", hover_color="#ba4949", width=80, font=("Arial", 14, "bold"))
+        self.clear_finished_button.pack(padx=5, pady=10)
+
+
+    def clear_finished(self):
+        self.task_manager.clear_finished_tasks()
+        self.main_window.refresh_task_list()
 
 
 if __name__ == "__main__":

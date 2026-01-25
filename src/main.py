@@ -68,18 +68,14 @@ class TaskManager:
         if not (0 <= index < len(self.list_tasks)):
             return
 
-        if self.current_index_task == index:
-            removed_active = index
-
+        was_active_task = (self.current_index_task == index)
         self.list_tasks.pop(index)
 
         if not self.list_tasks:
             self.current_index_task = None
-            return
 
-        if removed_active:
+        elif was_active_task:
             self.current_index_task = None
-            return
 
         if self.current_index_task is not None and index < self.current_index_task:
             self.current_index_task -= 1
@@ -105,6 +101,12 @@ class TaskManager:
                 task.completed_cycles += 1
                 if task.completed_cycles >= task.total_cycles:
                     task.completed = True
+
+
+    def clear_finished_tasks(self):
+        self.list_tasks = [task for task in self.list_tasks if not task.completed]
+        self.current_index_task = None
+
 
     def task_counter(self):
         count = 0
