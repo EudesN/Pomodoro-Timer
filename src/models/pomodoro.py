@@ -1,12 +1,19 @@
 class Pomodoro:
     #Contrutor padrão
-    def __init__(self, work_time = 1500, short_break = 300, long_break = 900, cycles_to_long_break = 4, current_mode = "Work", session_completed_cycles = 0):
-        self.work_time = work_time # padrão 25 min de tempo de trabalho
-        self.short_break = short_break  # padrão 5 minutos de intervalo curto
-        self.long_break = long_break # 15 minutos de descanso longo
-        self.cycles_to_long_break = cycles_to_long_break # contador de ciclos para a pausa longa
-        self.current_mode = current_mode # Armazena uma string q indica o timer atual exibido
-        self.session_completed_cycles = session_completed_cycles # Contador global de pomodoros feitos na sessão
+    def __init__(self, repository, current_mode = "Work", session_completed_cycles = 0):
+
+        self.settings_repository = repository
+        settings = repository.load_settings()
+
+        self.work_time = settings["work_time"]
+        self.short_break = settings["short_break"]
+        self.long_break = settings["long_break"]
+        self.cycles_to_long_break = settings["cycles_to_long_break"]
+
+        # contador de ciclos da sessão
+        self.session_completed_cycles = session_completed_cycles
+
+        self.current_mode = current_mode
 
     def set_work_time(self, new_work_time):
         self.work_time = new_work_time
@@ -44,3 +51,14 @@ class Pomodoro:
                 self.set_current_mode("Short")
         elif self.current_mode == "Short" or self.current_mode == "Long":
             self.set_current_mode("Work")
+
+# metodo para atualizar os valores no banco de dados
+    def apply_settings(self, new_settings):
+        self.work_time = new_settings["work_time"]
+        self.short_break = new_settings["short_break"]
+        self.long_break = new_settings["long_break"]
+        self.cycles_to_long_break = new_settings["cycles_to_long_break"]
+
+        self.settings_repository.save_settings(new_settings)
+
+        

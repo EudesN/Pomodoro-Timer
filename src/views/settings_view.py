@@ -7,7 +7,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.pomodoro = pomodoro
 
         self.title("Settings")
-        self.geometry("300x300")
+        self.geometry("300x400")
         self.resizable(False, False)
 
         self.pomodoro_label = ctk.CTkLabel(self, text= "Pomodoro(min)")
@@ -31,6 +31,13 @@ class SettingsWindow(ctk.CTkToplevel):
         current_long = self.main_window.pomodoro.long_break // 60
         self.long_entry.insert(0, str(current_long))
 
+        self.cycles_to_long_break_label = ctk.CTkLabel(self, text="Cycles to Long Break")
+        self.cycles_to_long_break_label.pack()
+        self.cycles_to_long_break_entry = ctk.CTkEntry(self, width=100)
+        self.cycles_to_long_break_entry.pack()
+        current_cycles_to_long_break = self.main_window.pomodoro.cycles_to_long_break
+        self.cycles_to_long_break_entry.insert(0, str(current_cycles_to_long_break))
+
         save_button = ctk.CTkButton(self, text="Save", command=self.save_values)
         save_button.pack(pady=10)
 
@@ -41,15 +48,28 @@ class SettingsWindow(ctk.CTkToplevel):
             new_pomodoro = int(self.pomodoro_entry.get()) * 60
             new_short = int(self.short_entry.get()) * 60
             new_long = int(self.long_entry.get()) * 60
+            new_cycles_to_long_break = int(self.cycles_to_long_break_entry.get())
 
             self.pomodoro.set_work_time(new_pomodoro)
             self.pomodoro.set_short_break(new_short)
             self.pomodoro.set_long_break(new_long)
+            self.pomodoro.set_cycles_to_long_break(new_cycles_to_long_break)
 
             current_mode = self.pomodoro.get_current_mode()
 
             if not self.main_window.is_timer_running:
                 self.main_window.pomodoro_ctrl.change_timer_mode(current_mode)
+
+            #adicionar o cycles_to_long_break depois nas configurações
+            new_settings = {
+                "work_time": new_pomodoro,
+                "short_break": new_short,
+                "long_break": new_long,
+                "cycles_to_long_break": self.pomodoro.cycles_to_long_break
+            }
+
+            self.pomodoro.apply_settings(new_settings)
+
             self.destroy()
 
         except ValueError:

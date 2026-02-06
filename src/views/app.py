@@ -2,15 +2,23 @@ import customtkinter as ctk
 
 from controllers.task_controller import TaskController
 from models import Pomodoro, TaskManager
-from . import SettingsWindow, TaskSettings, TaskWindow
 from controllers.pomodoro_controller import PomodoroController
+from .settings_view import SettingsWindow
+from .task_view import TaskWindow
+from .task_settings_view import TaskSettings
+
+from database.settings_repository import SettingsRepository
+from database.database import Database
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        db = Database()
+        settings_repo = SettingsRepository(db)
+
 # instancia Models
-        self.pomodoro = Pomodoro()
+        self.pomodoro = Pomodoro(settings_repo)
         self.task_manager = TaskManager()
 #instância Controllers
         self.pomodoro_ctrl = PomodoroController(self, self.pomodoro, self.task_manager)
