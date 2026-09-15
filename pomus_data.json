@@ -1,0 +1,71 @@
+{
+  "settings": {
+    "workTime": 25,
+    "shortBreakTime": 5,
+    "longBreakTime": 15,
+    "cyclesToLongBreak": 4,
+    "autoStartBreaks": false,
+    "autoStartPomodoros": false,
+    "alarmSound": "bell",
+    "soundVolume": 0.8,
+    "tickSound": false,
+    "theme": "earth",
+    "customColorPomo": "#ffa348",
+    "customColorShort": "#38858a",
+    "customColorLong": "#3d3846"
+  },
+  "tasks": [
+    {
+      "id": "task_1789322931740",
+      "title": "IA",
+      "estCycles": 6,
+      "actCycles": 3,
+      "completed": false,
+      "createdAt": 1789322931740
+    }
+  ],
+  "sessions": [
+    {
+      "id": "sess_1789337797670",
+      "date": "2026-09-13",
+      "timestamp": 1789337797670,
+      "timeFormatted": "07:16 PM",
+      "durationMinutes": 25,
+      "durationHours": 0.42,
+      "taskTitle": "IA",
+      "mode": "pomodoro"
+    },
+    {
+      "id": "sess_1789333929674",
+      "date": "2026-09-13",
+      "timestamp": 1789333929674,
+      "timeFormatted": "06:12 PM",
+      "durationMinutes": 1,
+      "durationHours": 0.02,
+      "taskTitle": "1234312",
+      "mode": "pomodoro"
+    },
+    {
+      "id": "sess_1789333772887",
+      "date": "2026-09-13",
+      "timestamp": 1789333772887,
+      "timeFormatted": "06:09 PM",
+      "durationMinutes": 25,
+      "durationHours": 0.42,
+      "taskTitle": "IA",
+      "mode": "pomodoro"
+    },
+    {
+      "id": "sess_1789325295420",
+      "date": "2026-09-13",
+      "timestamp": 1789325295420,
+      "timeFormatted": "03:48 PM",
+      "durationMinutes": 25,
+      "durationHours": 0.42,
+      "taskTitle": "IA",
+      "mode": "pomodoro"
+    }
+  ],
+  "activeTaskId": "task_1789322931740",
+  "updatedAt": "2026-09-13T22:18:16.212Z"
+}

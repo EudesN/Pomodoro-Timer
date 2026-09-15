@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Popomus - Focus Timer & Productivity</title>
+  <meta name="description" content="Popomus - Elegant, customizable productivity timer with Pomofocus-inspired task management, rich themes, and focus analytics.">
+  
+  <!-- Modern SVG Favicon & High-Res Icon -->
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="alternate icon" type="image/png" href="assets/icon.png">
+  <link rel="apple-touch-icon" href="assets/icon.png">
+  
+  <!-- Preconnect to Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Chart.js local offline asset -->
+  <script src="assets/chart.umd.min.js" defer></script>
+  
+  <!-- Modular Scripts -->
+  <script src="js/storage.js" defer></script>
+  <script src="js/audio.js" defer></script>
+  <script src="js/chart.js" defer></script>
+  <script src="js/timer.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body data-mode="pomodoro">
+
+  <!-- Ambient background glow element -->
+  <div class="ambient-glow" aria-hidden="true"></div>
+
+  <!-- Confetti Canvas overlay for celebrations -->
+  <canvas id="confettiCanvas" aria-hidden="true"></canvas>
+
+  <div class="app-container">
+
+    <!-- Header Section -->
+    <header class="app-header">
+      <div class="brand-wrapper">
+        <div class="brand-icon" aria-hidden="true">
+          <img src="assets/icon.png" alt="Popomus" class="brand-logo-img">
+        </div>
+        <h1 class="brand-title">Popomus</h1>
+      </div>
+
+      <nav class="header-actions" aria-label="Application actions">
+        <!-- Sound Mute/Unmute Toggle -->
+        <button id="btnSoundToggle" class="header-btn icon-only" aria-label="Toggle sound">
+          <svg id="iconSoundOn" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+          <svg id="iconSoundOff" style="display: none;" viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        </button>
+
+        <!-- Quick Theme Switcher Button -->
+        <button id="btnThemeToggle" class="header-btn icon-only" aria-label="Change theme">
+          <svg viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C21.438 6.2 17.2 2 12 2z"/></svg>
+        </button>
+
+        <!-- Fullscreen Toggle Button -->
+        <button id="btnFullscreen" class="header-btn icon-only" aria-label="Fullscreen">
+          <svg id="iconFullscreenEnter" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+          <svg id="iconFullscreenExit" style="display: none;" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+        </button>
+
+        <!-- Stats Button (Opens Chart Modal) -->
+        <button id="btnStats" class="header-btn" aria-label="View stats">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          <span>Stats</span>
+        </button>
+
+        <!-- Settings Button -->
+        <button id="btnSettings" class="header-btn" aria-label="Configure settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Main Section: Timer -->
+    <main>
+      <section class="timer-card" aria-label="Timer Card">
+        
+        <!-- Mode Switcher Tabs -->
+        <div class="mode-tabs" role="tablist">
+          <button id="tabPomodoro" class="tab-btn active" role="tab" aria-selected="true">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>
+            <span>Pomodoro</span>
+          </button>
+          <button id="tabShortBreak" class="tab-btn" role="tab" aria-selected="false">
+            <svg viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+            <span>Short Break</span>
+          </button>
+          <button id="tabLongBreak" class="tab-btn" role="tab" aria-selected="false">
+            <svg viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
+            <span>Long Break</span>
+          </button>
+        </div>
+
+        <!-- Animated Circular Progress Ring -->
+        <div class="timer-ring-container">
+          <svg class="timer-svg" viewBox="0 0 300 300">
+            <!-- Background track ring -->
+            <circle class="timer-ring-bg" cx="150" cy="150" r="135" />
+            <!-- Animated progress ring -->
+            <circle id="timerRingProgress" class="timer-ring-progress" cx="150" cy="150" r="135" />
+          </svg>
+
+          <!-- Digital Content inside Ring -->
+          <div class="timer-display-content">
+            <span id="timerModeBadge" class="timer-mode-badge">Pomodoro</span>
+            <div id="timerDigits" class="timer-digits">25:00</div>
+            
+            <!-- Clean cycle counter -->
+            <div class="timer-cycle-indicator">
+              <span id="cycleText" class="cycle-text">#1</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timer Controls (Play, Reset, Skip) -->
+        <div class="timer-controls">
+          <button id="btnTimerReset" class="btn-secondary" aria-label="Reset timer">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          </button>
+
+          <button id="btnTimerMain" class="btn-primary" aria-label="Start or pause timer">
+            <svg id="iconTimerPlay" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <svg id="iconTimerPause" viewBox="0 0 24 24" style="display: none;"><rect x="6" y="4" width="4" height="16" rx="1.5"></rect><rect x="14" y="4" width="4" height="16" rx="1.5"></rect></svg>
+            <span id="btnTimerMainText">START</span>
+          </button>
+
+          <button id="btnTimerSkip" class="btn-secondary" aria-label="Skip mode">
+            <svg viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Active Task Banner -->
+    <div id="activeTaskBanner" class="active-task-banner" style="display: none;">
+      <div class="active-task-info">
+        <span class="active-task-badge">Active Task</span>
+        <span id="activeTaskTitle" class="active-task-title">Task Title</span>
+      </div>
+      <span id="activeTaskCycles" class="active-task-cycles">0/1 pomos</span>
+    </div>
+
+    <!-- ========================================================================
+         TASKS SECTION (Inspired by Pomofocus)
+         ======================================================================== -->
+    <section class="tasks-section" aria-label="Task Manager">
+      
+      <!-- Section Header with 3-dots Menu -->
+      <div class="tasks-header">
+        <h2 class="tasks-title">Tasks</h2>
+        
+        <div class="tasks-menu-wrapper">
+          <button id="btnTasksMenu" class="btn-tasks-menu" aria-label="Task options">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+          </button>
+
+          <!-- Dropdown Menu for Tasks -->
+          <div id="tasksDropdownMenu" class="tasks-dropdown" style="display: none;">
+            <button id="btnClearCompletedTasks" class="dropdown-item">
+              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span>Clear completed</span>
+            </button>
+            <button id="btnClearAllTasks" class="dropdown-item danger">
+              <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>Clear all tasks</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <hr class="tasks-divider" />
+
+      <!-- Task List Container (Draggable cards with active highlight) -->
+      <div id="tasksList" class="tasks-list" role="list">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+
+      <!-- Add Task Button (Dashed border) -->
+      <button id="btnOpenAddTask" class="btn-add-task-dashed" type="button">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <span>Add Task</span>
+      </button>
+
+      <!-- Inline Add / Edit Task Form Card -->
+      <form id="taskForm" class="add-task-card" style="display: none;">
+        <div class="add-task-card-inner">
+          <input 
+            type="text" 
+            id="taskTitleInput" 
+            class="task-card-input" 
+            placeholder="What are you working on?" 
+            required 
+            autocomplete="off"
+          >
+          <div class="task-card-est-group">
+            <span class="est-label">Est Pomodoros</span>
+            <div class="est-stepper-wrap">
+              <input 
+                type="number" 
+                id="taskEstCyclesInput" 
+                class="est-number-input" 
+                value="1" 
+                min="1" 
+                max="99"
+              >
+              <button type="button" id="btnEstPlus" class="est-stepper-btn">+</button>
+              <button type="button" id="btnEstMinus" class="est-stepper-btn">-</button>
+            </div>
+          </div>
+        </div>
+        <div class="add-task-card-footer">
+          <button type="button" id="btnCancelAddTask" class="btn-task-cancel">Cancel</button>
+          <button type="submit" id="btnSaveAddTask" class="btn-task-save">Save</button>
+        </div>
+      </form>
+
+      <!-- Task Estimation Bottom Bar -->
+      <div id="tasksEstimateFooter" class="tasks-summary-bar">
+        <div class="summary-col">
+          <span class="summary-label">Pomos:</span>
+          <span class="summary-numbers"><strong id="summaryActPomos">0</strong> / <span id="summaryEstPomos">0</span></span>
+        </div>
+        <div class="summary-col right">
+          <span class="summary-label">Finish At:</span>
+          <span class="summary-numbers"><strong id="summaryFinishClock">--:--</strong> <span id="summaryFinishHours" class="summary-paren">(0.0h)</span></span>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <!-- Quick Theme Selector Popover (Inspirations/palete.png & palete2.png) -->
+  <div id="quickThemeMenu" class="quick-theme-popover" style="display: none;">
+    <div class="quick-theme-title">Choose a Theme</div>
+    <div class="quick-theme-grid">
+      <button class="theme-palette-btn" data-theme="sunset">
+        <span class="swatch" style="background: #da4d4f;"></span>
+        <span>Sunset</span>
+      </button>
+      <button class="theme-palette-btn" data-theme="earth">
+        <span class="swatch" style="background: #ea845e;"></span>
+        <span>Warm Earth</span>
+      </button>
+      <button class="theme-palette-btn" data-theme="dusk">
+        <span class="swatch" style="background: #dd7057;"></span>
+        <span>Dusk</span>
+      </button>
+      <button class="theme-palette-btn" data-theme="night">
+        <span class="swatch" style="background: #3d2228;"></span>
+        <span>Deep Night</span>
+      </button>
+      <button class="theme-palette-btn" data-theme="gunmetal">
+        <span class="swatch" style="background: #213241;"></span>
+        <span>Slate</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: STATISTICS & HISTORY
+       ======================================================================== -->
+  <dialog id="statsDialog" closedby="any" aria-labelledby="statsDialogTitle">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-title-icon">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          </div>
+          <h2 id="statsDialogTitle" class="modal-title">Focus Statistics</h2>
+        </div>
+        <button id="btnCloseStats" class="modal-close-btn" aria-label="Close modal">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Summary Cards Grid -->
+        <div class="stats-summary-grid">
+          <div class="stat-metric-card">
+            <div class="stat-icon-wrapper">
+              <span class="stat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
+            </div>
+            <div id="statTotalHours" class="stat-metric-value">0h</div>
+            <div class="stat-metric-label">Total Focused</div>
+          </div>
+
+          <div class="stat-metric-card">
+            <div class="stat-icon-wrapper">
+              <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg></span>
+            </div>
+            <div id="statAvgHours" class="stat-metric-value">0h</div>
+            <div class="stat-metric-label">Daily Average</div>
+          </div>
+
+          <div class="stat-metric-card">
+            <div class="stat-icon-wrapper">
+              <span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M12 2c-.5 2.5-3 5-3 8a6 6 0 0 0 12 0c0-3-2.5-5.5-3-8z"></path></svg></span>
+            </div>
+            <div id="statStreak" class="stat-metric-value">0 days</div>
+            <div class="stat-metric-label">Daily Streak</div>
+          </div>
+
+          <div class="stat-metric-card">
+            <div class="stat-icon-wrapper">
+              <span class="stat-icon"><svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></span>
+            </div>
+            <div id="statTotalPomos" class="stat-metric-value">0</div>
+            <div class="stat-metric-label">Total Cycles</div>
+          </div>
+        </div>
+
+        <!-- Focus Hours Chart Card -->
+        <div class="chart-container-card">
+          <div class="chart-toolbar">
+            <div class="chart-title">
+              <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+              <span>Daily Focus Activity</span>
+            </div>
+            <div class="chart-period-tabs" role="tablist">
+              <button class="period-btn active" data-days="7">7 days</button>
+              <button class="period-btn" data-days="14">14 days</button>
+              <button class="period-btn" data-days="30">30 days</button>
+            </div>
+          </div>
+
+          <div class="chart-canvas-wrapper">
+            <canvas id="focusHoursChart"></canvas>
+          </div>
+          <!-- Legend of tasks and dedicated times -->
+          <div id="chartTasksLegend" class="chart-tasks-legend"></div>
+        </div>
+
+        <!-- Recent Focus Sessions Log -->
+        <div class="history-section">
+          <div class="history-header">
+            <h3 class="history-title">Recent Focus Sessions</h3>
+          </div>
+          <div id="historyLogList" class="history-log-list"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btnClearHistory" class="header-btn" style="color: #da4d4f;">Clear History</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ========================================================================
+       MODAL: SETTINGS (Durations, Colors, Sounds & Backup)
+       ======================================================================== -->
+  <dialog id="settingsDialog" closedby="any" aria-labelledby="settingsDialogTitle">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-title-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </div>
+          <h2 id="settingsDialogTitle" class="modal-title">Settings</h2>
+        </div>
+        <button id="btnCloseSettings" class="modal-close-btn" aria-label="Close modal">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        
+        <!-- Timer Durations Section -->
+        <div>
+          <h3 class="settings-section-title">Timer (minutes)</h3>
+          <div class="duration-grid">
+            <div class="duration-input-card">
+              <label for="inputWorkTime" class="duration-label">Pomodoro</label>
+              <input type="number" id="inputWorkTime" class="duration-number-input" min="1" max="120" value="25">
+            </div>
+
+            <div class="duration-input-card">
+              <label for="inputShortBreak" class="duration-label">Short Break</label>
+              <input type="number" id="inputShortBreak" class="duration-number-input" min="1" max="60" value="5">
+            </div>
+
+            <div class="duration-input-card">
+              <label for="inputLongBreak" class="duration-label">Long Break</label>
+              <input type="number" id="inputLongBreak" class="duration-number-input" min="1" max="90" value="15">
+            </div>
+          </div>
+        </div>
+
+        <!-- Long Break Interval -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Long Break Interval</span>
+            <span class="toggle-desc">Focus cycles before triggering a long break</span>
+          </div>
+          <input type="number" id="inputCyclesToLong" class="duration-number-input" style="width: 4.8rem;" min="1" max="12" value="4">
+        </div>
+
+        <!-- Automation Toggles -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Auto-start Breaks</span>
+            <span class="toggle-desc">Automatically start break timer when focus completes</span>
+          </div>
+          <label class="switch" for="toggleAutoBreaks">
+            <input type="checkbox" id="toggleAutoBreaks">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Auto-start Pomodoros</span>
+            <span class="toggle-desc">Automatically start focus timer when break completes</span>
+          </div>
+          <label class="switch" for="toggleAutoPomos">
+            <input type="checkbox" id="toggleAutoPomos">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Sound Volume Slider -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Sound Volume</span>
+            <span class="toggle-desc">Volume level for alarm chimes and preview</span>
+          </div>
+          <div class="volume-control-wrap">
+            <input type="range" id="inputSoundVolume" min="0" max="100" value="80" class="volume-slider">
+            <span id="volumePercentDisplay" class="volume-percent-badge">80%</span>
+          </div>
+        </div>
+
+        <!-- Sound Alert Options -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Alarm Sound</span>
+            <span class="toggle-desc">Sound chime when timers finish</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <select id="selectAlarmSound" class="sound-select">
+              <option value="bell">Harmonious Bell</option>
+              <option value="zen">Tibetan Singing Bowl</option>
+              <option value="beep">Soft Digital Beep</option>
+              <option value="marimba">Acoustic Marimba</option>
+            </select>
+            <button id="btnPreviewSound" class="btn-preview-sound" type="button" aria-label="Preview alarm sound">
+              <svg viewBox="0 0 24 24">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Ticking Sound Option -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Ticking Sound</span>
+            <span class="toggle-desc">Subtle ticking sound every second during focus</span>
+          </div>
+          <label class="switch" for="toggleTickSound">
+            <input type="checkbox" id="toggleTickSound">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Theme & Color Switching Section (Inspirations Palettes) -->
+        <div>
+          <h3 class="settings-section-title">Appearance & Color Themes</h3>
+          <div class="theme-select-grid">
+            <label class="theme-card-option">
+              <input type="radio" name="settingsTheme" value="sunset">
+              <span class="theme-card-body">
+                <span class="theme-color-preview" style="background: #da4d4f;"></span>
+                <span class="theme-name">Sunset Glow</span>
+              </span>
+            </label>
+
+            <label class="theme-card-option">
+              <input type="radio" name="settingsTheme" value="earth">
+              <span class="theme-card-body">
+                <span class="theme-color-preview" style="background: #ea845e;"></span>
+                <span class="theme-name">Warm Earth</span>
+              </span>
+            </label>
+
+            <label class="theme-card-option">
+              <input type="radio" name="settingsTheme" value="dusk">
+              <span class="theme-card-body">
+                <span class="theme-color-preview" style="background: #dd7057;"></span>
+                <span class="theme-name">Dusk Horizons</span>
+              </span>
+            </label>
+
+            <label class="theme-card-option">
+              <input type="radio" name="settingsTheme" value="night">
+              <span class="theme-card-body">
+                <span class="theme-color-preview" style="background: #3d2228;"></span>
+                <span class="theme-name">Deep Night</span>
+              </span>
+            </label>
+
+            <label class="theme-card-option">
+              <input type="radio" name="settingsTheme" value="gunmetal">
+              <span class="theme-card-body">
+                <span class="theme-color-preview" style="background: #213241;"></span>
+                <span class="theme-name">Midnight Slate</span>
+              </span>
+            </label>
+
+            <label class="theme-card-option">
+              <input type="radio" name="settingsTheme" value="custom">
+              <span class="theme-card-body">
+                <span class="theme-color-preview custom" style="background: linear-gradient(135deg, #da4d4f, #f4a971);"></span>
+                <span class="theme-name">Custom</span>
+              </span>
+            </label>
+          </div>
+
+          <!-- Custom Colors Inputs (visible when custom theme is selected) -->
+          <div id="customColorSettings" class="custom-colors-panel" style="display: none;">
+            <div class="color-picker-item">
+              <label for="colorPomoInput">Focus:</label>
+              <input type="color" id="colorPomoInput" value="#da4d4f">
+            </div>
+            <div class="color-picker-item">
+              <label for="colorShortInput">Short Break:</label>
+              <input type="color" id="colorShortInput" value="#ea845e">
+            </div>
+            <div class="color-picker-item">
+              <label for="colorLongInput">Long Break:</label>
+              <input type="color" id="colorLongInput" value="#f39336">
+            </div>
+          </div>
+        </div>
+
+        <!-- Backup & Restoration (JSON Import / Export) -->
+        <div>
+          <h3 class="settings-section-title">Data & Backup</h3>
+          <div class="backup-actions-row">
+            <button type="button" id="btnExportData" class="header-btn">
+              <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Export Data</span>
+            </button>
+            <label class="header-btn" style="cursor: pointer;">
+              <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Import Data</span>
+              <input type="file" id="inputImportFile" accept=".json" style="display: none;">
+            </label>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button id="btnSaveSettings" class="btn-primary" style="height: 3rem; font-size: 0.95rem; padding: 0 1.8rem;">
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+</body>
+</html>

@@ -1,0 +1,4 @@
+work_time = 60
+short_break = 300
+long_break = 900
+cycles_to_long_break = 4

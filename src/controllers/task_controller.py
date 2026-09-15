@@ -1,6 +1,3 @@
-import models
-
-
 class TaskController:
     def __init__(self, view, task_manager):
         self.view = view

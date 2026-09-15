@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=Popomus
+GenericName=Focus Timer
+Comment=Pomodoro focus timer and productivity tracker
+Exec=pomus %U
+Icon=pomus
+Terminal=false
+Categories=Utility;Clock;GTK;
+Keywords=pomodoro;timer;focus;productivity;
+StartupWMClass=pomus
+StartupNotify=true
+SingleMainWindow=true

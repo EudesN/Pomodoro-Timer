@@ -1,0 +1,6 @@
+#!/bin/bash
+# Pomus - Focus Timer & Productivity
+# Launcher script: resolves the project directory and runs app.py
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+exec python3 "${SCRIPT_DIR}/app.py" "$@"

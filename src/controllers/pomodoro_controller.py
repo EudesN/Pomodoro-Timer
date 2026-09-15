@@ -1,12 +1,14 @@
+from models.pomodoro import TimerMode
+
 class PomodoroController:
     def __init__(self, view, pomodoro, task_manager):
         self.view = view
         self.pomodoro = pomodoro
         self.task_manager = task_manager
 
-#altera o modo do timer e atualiza a UI
+# altera o modo do timer e atualiza a UI
     def change_timer_mode(self, mode):
-        self.pomodoro.set_current_mode(mode)
+        self.pomodoro.current_mode = mode
         self.view.highlight_button(mode)
 
         self.view.time_left = self.pomodoro.get_current_time()
@@ -33,12 +35,13 @@ class PomodoroController:
         elif self.view.time_left == 0:
             self.view.is_timer_running = False
             self.view.start_button.configure(text="START")
-            if self.view.pomodoro.get_current_mode() == "Work":
+
+            if self.view.pomodoro.current_mode == TimerMode.WORK:
                 self.view.task_manager.increment_active_task_cycle()
                 self.view.refresh_task_list()
 
             self.pomodoro.switch_timer() # mudar de modo
 
             self.view.update_session_cycles_info() #atualizar o contador de ciclos totais da sessão
-            self.change_timer_mode(self.pomodoro.get_current_mode()) # atualizar o modo de tempo da UI
+            self.change_timer_mode(self.pomodoro.current_mode) # atualizar o modo de tempo da UI
 
