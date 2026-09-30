@@ -7,7 +7,6 @@ class TaskController:
         self.task_manager.remove_task(index)
         self.view.refresh_task_list()
 
-#Define a tarefa como ativa e atualiza a UI
     def on_task_click(self, index):
         self.task_manager.set_active_task(index)
         self.view.refresh_task_list()

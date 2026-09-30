@@ -53,5 +53,5 @@ class TaskSettings(ctk.CTkToplevel):
         self.task_manager.clear_finished_tasks()
         self.main_window.refresh_task_list()
 
-    def clear_finished(self):  # compatibilidade
+    def clear_finished(self):
         self._clear_finished()

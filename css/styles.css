@@ -37,10 +37,14 @@
   --border-surface: rgba(255, 255, 255, 0.2);
 
   /* Transitions */
-  --transition-theme: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
-                      border-color 0.4s ease,
-                      box-shadow 0.4s ease;
-  --transition-interactive: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-theme: background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                      border-color 0.3s ease,
+                      box-shadow 0.3s ease;
+  --transition-interactive: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+                            background-color 0.15s ease,
+                            border-color 0.15s ease,
+                            opacity 0.15s ease,
+                            box-shadow 0.15s ease;
 }
 
 /* Dynamic Mode Colors */
@@ -71,30 +75,41 @@ html, body {
   font-family: var(--font-main);
   color: #ffffff;
   background-color: var(--primary);
-  background-image: 
-    radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.08) 0%, transparent 65%),
-    radial-gradient(circle at 85% 85%, rgba(0, 0, 0, 0.15) 0%, transparent 65%);
-  background-attachment: fixed;
   transition: var(--transition-theme);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
 
-/* Ambient glow */
-.ambient-glow {
+/* Fixed background overlay for hardware-accelerated scrolling without repaints */
+body::before {
+  content: '';
   position: fixed;
-  top: -140px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 700px;
-  height: 500px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%);
-  filter: blur(80px);
+  inset: 0;
+  background-image: 
+    radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.08) 0%, transparent 65%),
+    radial-gradient(circle at 85% 85%, rgba(0, 0, 0, 0.15) 0%, transparent 65%);
   pointer-events: none;
   z-index: 0;
-  transition: var(--transition-theme);
+  transform: translateZ(0);
+}
+
+/* Ambient glow - Multi-stop smooth radial gradient eliminating heavy blur(80px) */
+.ambient-glow {
+  position: fixed;
+  top: -160px;
+  left: 50%;
+  transform: translateX(-50%) translateZ(0);
+  width: 760px;
+  height: 560px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, 
+    rgba(255, 255, 255, 0.14) 0%, 
+    rgba(255, 255, 255, 0.08) 35%, 
+    rgba(255, 255, 255, 0.02) 60%, 
+    transparent 75%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* Confetti Canvas */
@@ -152,11 +167,11 @@ body.is-fullscreen .app-container {
   width: 2.2rem;
   height: 2.2rem;
   background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 0.65rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(8px);
   transition: var(--transition-interactive);
 }
 
@@ -196,7 +211,7 @@ body.is-fullscreen .app-container {
 
 .header-btn {
   background: rgba(255, 255, 255, 0.18);
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   color: #ffffff;
   padding: 0.45rem 0.8rem;
   border-radius: 0.5rem;
@@ -206,7 +221,6 @@ body.is-fullscreen .app-container {
   align-items: center;
   gap: 0.4rem;
   cursor: pointer;
-  backdrop-filter: blur(6px);
   transition: var(--transition-interactive);
 }
 
@@ -236,16 +250,17 @@ body.is-fullscreen .app-container {
    ========================================================================== */
 .timer-card {
   background: var(--bg-surface-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border-surface);
   border-radius: 1.5rem;
   padding: 1.8rem 1.5rem 2.2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
   transition: var(--transition-theme);
+  transform: translateZ(0);
 }
 
 /* Mode Tabs */
@@ -345,6 +360,10 @@ body.is-fullscreen .app-container {
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* ========================================================================
+   NUMBER ROLLING ANIMATION (3D Mechanical Odometer / Drum Reel)
+   ======================================================================== */
+
 .timer-digits {
   font-family: var(--font-timer);
   font-variant-numeric: tabular-nums;
@@ -355,6 +374,133 @@ body.is-fullscreen .app-container {
   line-height: 1;
   color: #ffffff;
   text-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  height: 1.15em;
+  position: relative;
+}
+
+.roll-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  height: 1.15em;
+  line-height: 1.15em;
+  /* Subtle edge gradient mask for authentic mechanical drum reel look */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
+}
+
+.roll-slot-digit {
+  width: 0.62em;
+  min-width: 0.62em;
+  text-align: center;
+}
+
+.roll-slot-sep {
+  width: 0.28em;
+  min-width: 0.28em;
+  text-align: center;
+  opacity: 0.88;
+  height: 1.15em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+.roll-unit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+.roll-unit-active {
+  position: relative;
+  transform: none;
+  opacity: 1;
+}
+
+/* Animations for Rolling DOWN (Countdown: old descends, new rolls in from above) */
+@keyframes rollEnterDown {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes rollExitDown {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0.05;
+  }
+}
+
+/* Animations for Rolling UP (Count-up / Reset: old ascends, new rolls in from below) */
+@keyframes rollEnterUp {
+  0% {
+    transform: translateY(100%);
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes rollExitUp {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100%);
+    opacity: 0.05;
+  }
+}
+
+.roll-unit-enter.roll-dir-down {
+  animation: rollEnterDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roll-unit-exit.roll-dir-down {
+  animation: rollExitDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roll-unit-enter.roll-dir-up {
+  animation: rollEnterUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roll-unit-exit.roll-dir-up {
+  animation: rollExitUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roll-unit {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }
 
 /* Clean Cycle Indicator (No dots) */
@@ -363,10 +509,10 @@ body.is-fullscreen .app-container {
   align-items: center;
   justify-content: center;
   padding: 0.25rem 0.85rem;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 1rem;
   margin-top: 0.4rem;
-  backdrop-filter: blur(4px);
 }
 
 .cycle-text {
@@ -375,6 +521,22 @@ body.is-fullscreen .app-container {
   font-weight: 700;
   color: #ffffff;
   letter-spacing: 0.04em;
+  display: inline-block;
+}
+
+.cycle-text.cycle-roll {
+  animation: cycleRoll 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes cycleRoll {
+  0% {
+    transform: translateY(6px) scale(0.9);
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
 }
 
 /* Timer Controls */
@@ -607,6 +769,7 @@ body.is-fullscreen .app-container {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  contain: layout style;
 }
 
 /* Task Item Card (White background matching image.png) */
@@ -623,6 +786,7 @@ body.is-fullscreen .app-container {
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-left-color 0.15s ease, background-color 0.2s ease;
   position: relative;
   user-select: none;
+  transform: translateZ(0);
 }
 
 .task-item:active {
@@ -1264,8 +1428,7 @@ dialog {
 }
 
 dialog::backdrop {
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.65);
 }
 
 .modal-content {
@@ -1338,6 +1501,8 @@ dialog::backdrop {
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .modal-footer {
@@ -1753,6 +1918,128 @@ input:checked + .slider:before {
 .chart-canvas-wrapper {
   height: 220px;
   position: relative;
+}
+
+/* Discreet Popout for Chart Bars (Hover Indicator) */
+.chart-bar-popout {
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -100%) scale(0.95);
+  transition: opacity 0.15s cubic-bezier(0.2, 0, 0, 1),
+              transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.28));
+}
+
+.chart-bar-popout.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.chart-bar-popout.pos-above {
+  transform: translate(-50%, -100%) scale(1);
+}
+
+.chart-bar-popout.pos-below {
+  transform: translate(-50%, 0) scale(1);
+}
+
+.chart-popout-content {
+  background: rgba(26, 29, 36, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 110px;
+  max-width: 220px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.chart-popout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+}
+
+.chart-popout-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+}
+
+.chart-popout-task {
+  font-family: var(--font-timer);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.chart-popout-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-timer);
+  line-height: 1.2;
+}
+
+.chart-popout-time {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #f39336;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-popout-sep {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.chart-popout-date {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+  white-space: nowrap;
+}
+
+.chart-popout-sessions {
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Arrow indicator */
+.chart-popout-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  left: 50%;
+  margin-left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  transition: transform 0.15s ease;
+}
+
+.pos-above .chart-popout-arrow {
+  bottom: -5px;
+  border-top: 5px solid rgba(26, 29, 36, 0.95);
+}
+
+.pos-below .chart-popout-arrow {
+  top: -5px;
+  border-bottom: 5px solid rgba(26, 29, 36, 0.95);
 }
 
 /* Tasks Dedicated Time Legend & Daily Breakdown (Below Chart) */

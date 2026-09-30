@@ -26,6 +26,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabLongBreak = document.getElementById('tabLongBreak');
   const timerRingProgress = document.getElementById('timerRingProgress');
   const timerDigits = document.getElementById('timerDigits');
+  let timerRoller = (typeof DigitRoller === 'function' && timerDigits)
+    ? new DigitRoller(timerDigits, {
+        enabled: true,
+        duration: 350
+      })
+    : null;
+  window.timerRoller = timerRoller;
   const timerModeBadge = document.getElementById('timerModeBadge');
   const cycleText = document.getElementById('cycleText');
   const btnTimerMain = document.getElementById('btnTimerMain');
@@ -78,6 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const selectAlarmSound = document.getElementById('selectAlarmSound');
   const btnPreviewSound = document.getElementById('btnPreviewSound');
   const toggleTickSound = document.getElementById('toggleTickSound');
+  const toggleRollingAnimation = document.getElementById('toggleRollingAnimation');
 
   const customColorSettings = document.getElementById('customColorSettings');
   const colorPomoInput = document.getElementById('colorPomoInput');
@@ -119,11 +127,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Apply Initial Theme
   applyTheme(settings.theme || 'sunset');
 
-  // Listeners de ciclo de vida para garantir gravação imediata em disco ao fechar janela
-  window.addEventListener('beforeunload', () => Storage.syncWithDisk(true));
-  window.addEventListener('pagehide', () => Storage.syncWithDisk(true));
+  // Salvar estado do timer e sincronizar com o disco ao fechar janela ou trocar visibilidade
+  window.persistAll = function() {
+    if (timer) {
+      Storage.saveTimerState(timer.getState(), true);
+    }
+    Storage.syncWithDisk(true);
+  };
+
+  window.addEventListener('beforeunload', () => window.persistAll());
+  window.addEventListener('pagehide', () => window.persistAll());
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') Storage.syncWithDisk(true);
+    if (document.visibilityState === 'hidden') window.persistAll();
   });
 
   // Hidratação garantida a partir do disco na inicialização
@@ -139,7 +154,15 @@ document.addEventListener('DOMContentLoaded', () => {
       iconSoundOff.style.display = soundMuted ? 'block' : 'none';
       applyTheme(settings.theme || 'sunset');
       renderTasks();
-      if (timer) timer.updateSettings(settings);
+      if (timerRoller) timerRoller.setEnabled(settings.rollingAnimation !== false);
+      if (timer && !timer.isRunning) {
+        const diskTimerState = Storage.getTimerState();
+        if (diskTimerState && diskTimerState.timeLeft > 0) {
+          timer.restoreState(diskTimerState);
+        } else {
+          timer.updateSettings(settings, true);
+        }
+      }
       updateActiveTaskBanner();
       updateTaskEstimate();
     } else {
@@ -169,15 +192,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --------------------------------------------------------------------------
-  // TIMER INITIALIZATION
+  // TIMER INITIALIZATION & ROLLING DIGITS
   // --------------------------------------------------------------------------
+  let lastTimeLeft = null;
+  if (timerRoller) {
+    timerRoller.setEnabled(settings.rollingAnimation !== false);
+  }
+
   timer = new PomodoroTimer({
     settings: settings,
     onTick: (timeLeft, totalDuration, progress) => {
       const mins = Math.floor(timeLeft / 60).toString().padStart(2, '0');
       const secs = (timeLeft % 60).toString().padStart(2, '0');
       const formatted = `${mins}:${secs}`;
-      timerDigits.textContent = formatted;
+
+      if (timerRoller) {
+        const isFirst = (lastTimeLeft === null);
+        const dir = (isFirst || timeLeft < lastTimeLeft) ? 'down' : 'up';
+        timerRoller.setValue(formatted, dir, isFirst);
+      } else {
+        timerDigits.textContent = formatted;
+      }
+      lastTimeLeft = timeLeft;
 
       const offset = RING_CIRCUMFERENCE * (1 - progress);
       timerRingProgress.style.strokeDashoffset = offset;
@@ -226,6 +262,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (activeTask) {
           activeTask.actCycles = (activeTask.actCycles || 0) + 1;
+          delete activeTask.manuallyUnchecked;
+          // Marcar como completa assim que atingir o objetivo, permitindo que supere
+          if (activeTask.actCycles >= (activeTask.estCycles || 1)) {
+            activeTask.completed = true;
+          }
           Storage.saveTasks(tasks);
           renderTasks();
           updateActiveTaskBanner();
@@ -238,15 +279,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  window.timer = timer;
+
   function updateCycleDisplay(cycleCount) {
     const current = (cycleCount % settings.cyclesToLongBreak) + 1;
+    const newText = `#${current}`;
     if (cycleText) {
-      cycleText.textContent = `#${current}`;
+      if (cycleText.textContent !== newText) {
+        cycleText.textContent = newText;
+        if (settings.rollingAnimation !== false) {
+          cycleText.classList.remove('cycle-roll');
+          void cycleText.offsetWidth; // trigger reflow
+          cycleText.classList.add('cycle-roll');
+        }
+      }
     }
   }
 
-  // Initial trigger to paint timer
-  timer.reset();
+  // Initial trigger to paint timer (restaura estado salvo ou reinicia)
+  const initialTimerState = Storage.getTimerState();
+  if (initialTimerState && timer.restoreState(initialTimerState)) {
+    // Estado restaurado com sucesso do disco / localStorage
+  } else {
+    timer.reset();
+  }
 
   // --------------------------------------------------------------------------
   // TIMER CONTROLS & SOUNDS
@@ -406,12 +462,18 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    let tasksAutoCompleted = false;
     tasks.forEach(task => {
+      const act = task.actCycles || 0;
+      const est = Math.max(1, task.estCycles || 1);
+      // Marca automaticamente como completa ao atingir o objetivo
+      if (act >= est && !task.completed && !task.manuallyUnchecked) {
+        task.completed = true;
+        tasksAutoCompleted = true;
+      }
       const isSelected = task.id === activeTaskId;
       const isCompleted = !!task.completed;
       const isEditing = task.id === editingTaskId;
-      const act = task.actCycles || 0;
-      const est = Math.max(1, task.estCycles || 1);
 
       const taskEl = document.createElement('div');
       taskEl.className = `task-item ${isSelected ? 'active-focus' : ''} ${isCompleted ? 'completed' : ''} ${isEditing ? 'is-editing' : ''}`;
@@ -547,6 +609,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 15);
       }
     });
+
+    if (tasksAutoCompleted) {
+      Storage.saveTasks(tasks);
+    }
 
     updateActiveTaskBanner();
     updateTaskEstimate();
@@ -743,6 +809,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         task.actCycles = Math.max(0, isNaN(parsedAct) ? 0 : parsedAct);
         task.estCycles = Math.max(1, isNaN(parsedEst) ? 1 : parsedEst);
+        if (task.actCycles >= task.estCycles && !task.completed) {
+          task.completed = true;
+        }
         editingTaskId = null;
         Storage.saveTasks(tasks);
         updateActiveTaskBanner();
@@ -765,6 +834,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (action === 'toggle') {
       e.stopPropagation();
       task.completed = !task.completed;
+      task.manuallyUnchecked = !task.completed;
       Storage.saveTasks(tasks);
       updateTaskEstimate();
       renderTasks();
@@ -808,6 +878,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAutoPomos.checked = settings.autoStartPomodoros;
     selectAlarmSound.value = settings.alarmSound;
     toggleTickSound.checked = !!settings.tickSound;
+    if (toggleRollingAnimation) toggleRollingAnimation.checked = (settings.rollingAnimation !== false);
     syncVolumeUI(settings.soundVolume !== undefined ? settings.soundVolume : 0.8);
 
     // Theme radios
@@ -869,11 +940,16 @@ document.addEventListener('DOMContentLoaded', () => {
       soundVolume: volVal,
       alarmSound: selectAlarmSound.value,
       tickSound: toggleTickSound.checked,
+      rollingAnimation: toggleRollingAnimation ? toggleRollingAnimation.checked : true,
       theme: checkedTheme,
       customColorPomo: colorPomoInput.value,
       customColorShort: colorShortInput.value,
       customColorLong: colorLongInput.value
     };
+
+    if (timerRoller) {
+      timerRoller.setEnabled(settings.rollingAnimation !== false);
+    }
 
     soundMuted = (volVal <= 0);
     AudioPlayer.setMuted(soundMuted);
@@ -910,7 +986,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnCloseStats.addEventListener('click', () => {
+    if (window.StatsChart && typeof StatsChart.hidePopout === 'function') {
+      StatsChart.hidePopout();
+    }
     statsDialog.close();
+  });
+
+  statsDialog.addEventListener('close', () => {
+    if (window.StatsChart && typeof StatsChart.hidePopout === 'function') {
+      StatsChart.hidePopout();
+    }
   });
 
   periodButtons.forEach(btn => {

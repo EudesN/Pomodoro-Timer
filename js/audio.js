@@ -10,7 +10,7 @@ class SoundSynthesizer {
   constructor() {
     this.ctx = null;
     this.audioCache = new Map();
-    this.soundFiles = ['bell', 'zen', 'beep', 'marimba', 'tick'];
+    this.soundFiles = ['bell', 'zen', 'beep', 'marimba', 'tick', 'click'];
     this.nativeBridgeAvailable = null; // null = untried, true/false
     this.isMuted = false;
   }
@@ -109,9 +109,16 @@ class SoundSynthesizer {
    * Play an ultra-soft, gentle tactile tap
    * Only used for the main Start/Pause timer button
    */
-  async playButtonClick(volume = 0.025) {
+  async playButtonClick(volume = 0.25) {
     if (this.isMuted) return;
 
+    // Layer 1: Native OS bridge with soft acoustic click sound
+    if (window.location.protocol.startsWith('http')) {
+      const bridgeSuccess = await this._triggerNativeBridge('click', 0.25);
+      if (bridgeSuccess) return;
+    }
+
+    // Layer 2: Web Audio API procedural soft warm tap
     try {
       this._initContext();
       if (this.ctx && this.ctx.state === 'running') {
@@ -120,28 +127,26 @@ class SoundSynthesizer {
         const gain = this.ctx.createGain();
 
         osc.type = 'sine';
-        // Gentle low drop from 280Hz to 160Hz for a smooth, subtle tactile tap
-        osc.frequency.setValueAtTime(280, now);
-        osc.frequency.exponentialRampToValueAtTime(160, now + 0.018);
+        // Gentle warm descent from 340Hz to 210Hz
+        osc.frequency.setValueAtTime(340, now);
+        osc.frequency.exponentialRampToValueAtTime(210, now + 0.045);
 
-        const safeGain = Math.max(0.0001, (volume || 0.025) * 0.4);
+        const safeGain = Math.max(0.0001, (volume || 0.25) * 0.12);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.linearRampToValueAtTime(safeGain, now + 0.003);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
+        gain.gain.linearRampToValueAtTime(safeGain, now + 0.004);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
 
         osc.connect(gain);
         gain.connect(this.ctx.destination);
 
         osc.start(now);
-        osc.stop(now + 0.022);
+        osc.stop(now + 0.055);
         return;
       }
     } catch (e) {}
 
-    // Fallback: If on local HTTP server, trigger gentle click sound
-    if (window.location.protocol.startsWith('http')) {
-      this._triggerNativeBridge('click', 0.02);
-    }
+    // Layer 3: HTML5 audio click.wav fallback
+    this._playHtml5Audio('click', 0.25);
   }
 
   /**

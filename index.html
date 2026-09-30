@@ -17,17 +17,18 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
   
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=2.3">
 
   <!-- Chart.js local offline asset -->
   <script src="assets/chart.umd.min.js" defer></script>
   
   <!-- Modular Scripts -->
-  <script src="js/storage.js" defer></script>
-  <script src="js/audio.js" defer></script>
-  <script src="js/chart.js" defer></script>
-  <script src="js/timer.js" defer></script>
-  <script src="js/app.js" defer></script>
+  <script src="js/storage.js?v=2.2" defer></script>
+  <script src="js/audio.js?v=2.2" defer></script>
+  <script src="js/roller.js?v=2.2" defer></script>
+  <script src="js/chart.js?v=2.3" defer></script>
+  <script src="js/timer.js?v=2.2" defer></script>
+  <script src="js/app.js?v=2.3" defer></script>
 </head>
 <body data-mode="pomodoro">
 
@@ -335,6 +336,8 @@
 
           <div class="chart-canvas-wrapper">
             <canvas id="focusHoursChart"></canvas>
+            <!-- Discreet popout element for hovered bar task -->
+            <div id="chartBarPopout" class="chart-bar-popout" aria-hidden="true"></div>
           </div>
           <!-- Legend of tasks and dedicated times -->
           <div id="chartTasksLegend" class="chart-tasks-legend"></div>
@@ -470,6 +473,18 @@
           </div>
           <label class="switch" for="toggleTickSound">
             <input type="checkbox" id="toggleTickSound">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Number Rolling Animation Option -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Number Rolling Animation</span>
+            <span class="toggle-desc">Smooth mechanical rolling reel effect when timer digits change</span>
+          </div>
+          <label class="switch" for="toggleRollingAnimation">
+            <input type="checkbox" id="toggleRollingAnimation" checked>
             <span class="slider"></span>
           </label>
         </div>

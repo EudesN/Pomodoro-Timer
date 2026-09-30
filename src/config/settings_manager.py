@@ -8,7 +8,6 @@ class SettingsManager:
         if not os.path.exists(self.filename):
             self._create_default_settings()
     
-    # Salva o dicionário de configurações no arquivo TOML
     def save_settings(self, settings):
         try:
             with open(self.filename, 'w', encoding="utf-8") as f:
@@ -16,7 +15,6 @@ class SettingsManager:
         except Exception as e:
             print(f"Erro ao salvar as configurações no arquivo TOML: {e}")
     
-    #Lê as configurações do arquivo TOML e retorna um dicionário
     def load_settings(self):
         try:
             with open(self.filename, 'r', encoding="utf-8") as f:

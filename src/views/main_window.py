@@ -11,20 +11,18 @@ from .settings_view import SettingsWindow
 from .task_settings_view import TaskSettings
 from .task_view import TaskWindow
 
-# ── Paleta Pomofocus ─────────────────────────────────────────
-BG           = "#BA4949"   # vermelho principal (fundo)
-CARD         = "#C75C5C"   # card do timer (levemente mais claro)
-HOVER        = "#CF6E6E"   # hover geral
-TAB_ACTIVE   = "#9B3C3C"   # tab/botão ativo (mais escuro)
-TAB_HOVER    = "#8A3232"   # hover do tab ativo
+BG           = "#BA4949"
+CARD         = "#C75C5C"
+HOVER        = "#CF6E6E"
+TAB_ACTIVE   = "#9B3C3C"
+TAB_HOVER    = "#8A3232"
 TEXT_WHITE   = "#FFFFFF"
-TEXT_DIM     = "#E8A8A8"   # texto secundário (branco suave)
+TEXT_DIM     = "#E8A8A8"
 BTN_START_BG = "#FFFFFF"
 BTN_START_FG = "#BA4949"
-TASK_CARD_ACT= "#FFFFFF"   # card de tarefa ativa (branco)
-TASK_CARD    = "#C96666"   # card de tarefa normal
-SEP          = "#CF6E6E"   # cor do separador
-# ─────────────────────────────────────────────────────────────
+TASK_CARD_ACT= "#FFFFFF"
+TASK_CARD    = "#C96666"
+SEP          = "#CF6E6E"
 
 ctk.set_appearance_mode("light")
 
@@ -54,8 +52,6 @@ class MainWindow(ctk.CTk):
         self.update_timer_label()
         self.highlight_button(TimerMode.WORK)
         self.refresh_task_list()
-
-    # ─────────────────────────────────────────────────────────
 
     def _build_ui(self):
         self._build_header()
@@ -88,7 +84,6 @@ class MainWindow(ctk.CTk):
         card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=14)
         card.pack(fill="x", padx=30, pady=(4, 0))
 
-        # Tabs
         tabs = ctk.CTkFrame(card, fg_color="transparent")
         tabs.pack(pady=(22, 0))
 
@@ -118,7 +113,6 @@ class MainWindow(ctk.CTk):
         )
         self.long_button.pack(side="left", padx=4)
 
-        # Contador
         self.time_label = ctk.CTkLabel(
             card, text="00:00",
             font=("Arial Rounded MT Bold", 96, "bold"),
@@ -126,7 +120,6 @@ class MainWindow(ctk.CTk):
         )
         self.time_label.pack(pady=(12, 10))
 
-        # START
         self.start_button = ctk.CTkButton(
             card, text="START",
             command=self.pomodoro_ctrl.toggle_timer,
@@ -154,7 +147,6 @@ class MainWindow(ctk.CTk):
         ).pack()
 
     def _build_task_section(self):
-        # Cabeçalho Tasks
         hdr = ctk.CTkFrame(self, fg_color="transparent", height=36)
         hdr.pack(fill="x", padx=30, pady=(12, 0))
 
@@ -172,10 +164,8 @@ class MainWindow(ctk.CTk):
             corner_radius=6,
         ).pack(side="right")
 
-        # Separador
         ctk.CTkFrame(self, fg_color=SEP, height=1).pack(fill="x", padx=30, pady=(4, 4))
 
-        # Lista
         self.task_container = ctk.CTkScrollableFrame(
             self, fg_color="transparent",
             scrollbar_button_color=HOVER,
@@ -183,7 +173,6 @@ class MainWindow(ctk.CTk):
         )
         self.task_container.pack(fill="both", expand=True, padx=30)
 
-        # Botão adicionar
         self.add_task_button = ctk.CTkButton(
             self, text="+ Add Task",
             command=self.open_add_new_task,
@@ -195,8 +184,6 @@ class MainWindow(ctk.CTk):
             border_width=2, border_color=HOVER,
         )
         self.add_task_button.pack(fill="x", padx=30, pady=(6, 18))
-
-    # ── Métodos públicos ─────────────────────────────────────
 
     def highlight_button(self, active_mode):
         on  = {"fg_color": TAB_ACTIVE, "text_color": TEXT_WHITE, "hover_color": TAB_HOVER}
@@ -237,7 +224,6 @@ class MainWindow(ctk.CTk):
         title_col = BTN_START_FG if is_active else TEXT_WHITE
         dim_col   = "#BA4949"    if is_active else TEXT_DIM
 
-        # ícone
         check = ctk.CTkLabel(
             card, text="✓" if task.completed else "○",
             font=("Arial", 16),
@@ -245,21 +231,18 @@ class MainWindow(ctk.CTk):
         )
         check.pack(side="left", padx=(12, 4))
 
-        # título
         lbl_title = ctk.CTkLabel(
             card, text=task.title,
             font=("Arial", 13, "bold"), text_color=title_col,
         )
         lbl_title.pack(side="left", pady=16)
 
-        # ciclos
         lbl_count = ctk.CTkLabel(
             card, text=f"{task.completed_cycles}/{task.total_cycles}",
             font=("Arial", 11), text_color=dim_col,
         )
         lbl_count.pack(side="right", padx=(0, 6))
 
-        # remover
         btn_remove = ctk.CTkButton(
             card, text="Remove",
             command=lambda: self.task_ctrl.remove_task(index),

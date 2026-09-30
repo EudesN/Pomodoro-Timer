@@ -1,1 +1,31 @@
+# Byte-compiled / cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+ENV/
+
+# Bancos de dados e persistência local de dados
+*.db
+*.sqlite
+*.sqlite3
+pomodoro_data.db
+pomus_data.json
+*.sock
+
+# IDEs e Editores
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
+tempCodeRunnerFile.py
+*.code-workspace
+
+# Arquivos de sistema operacional
+.DS_Store
+Thumbs.db

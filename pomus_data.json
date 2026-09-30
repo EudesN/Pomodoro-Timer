@@ -9,6 +9,7 @@
     "alarmSound": "bell",
     "soundVolume": 0.8,
     "tickSound": false,
+    "rollingAnimation": true,
     "theme": "earth",
     "customColorPomo": "#ffa348",
     "customColorShort": "#38858a",

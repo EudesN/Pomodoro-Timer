@@ -22,7 +22,6 @@ class PomodoroTimer {
     this.timerId = null;
     this.targetEndTime = null;
 
-    // Callbacks
     this.onTick = options.onTick || (() => {});
     this.onStateChange = options.onStateChange || (() => {});
     this.onComplete = options.onComplete || (() => {});
@@ -79,6 +78,49 @@ class PomodoroTimer {
     }
   }
 
+  getState() {
+    return {
+      mode: this.mode,
+      timeLeft: this.timeLeft,
+      totalDuration: this.totalDuration,
+      cycleCount: this.cycleCount,
+      isRunning: this.isRunning,
+      savedAt: Date.now()
+    };
+  }
+
+  restoreState(state) {
+    if (!state || typeof state !== 'object') return false;
+
+    const validModes = [TimerMode.POMODORO, TimerMode.SHORT_BREAK, TimerMode.LONG_BREAK];
+    if (state.mode && validModes.includes(state.mode)) {
+      this.mode = state.mode;
+    }
+
+    if (typeof state.cycleCount === 'number' && state.cycleCount >= 0) {
+      this.cycleCount = state.cycleCount;
+    }
+
+    this.totalDuration = this.getDurationForMode(this.mode);
+
+    if (typeof state.timeLeft === 'number' && state.timeLeft > 0 && state.timeLeft <= this.totalDuration) {
+      this.timeLeft = state.timeLeft;
+    } else {
+      this.timeLeft = this.totalDuration;
+    }
+
+    this.isRunning = false;
+    this.onStateChange(this.mode, this.isRunning, this.cycleCount);
+    this._dispatchTick();
+    return true;
+  }
+
+  _persistState(syncDisk = false) {
+    if (typeof Storage !== 'undefined' && Storage.saveTimerState) {
+      Storage.saveTimerState(this.getState(), syncDisk);
+    }
+  }
+
   setMode(mode, autoStart = false) {
     this.pause();
     this.mode = mode;
@@ -87,6 +129,7 @@ class PomodoroTimer {
 
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
     this._dispatchTick();
+    this._persistState(true);
 
     if (autoStart) {
       this.start();
@@ -104,6 +147,7 @@ class PomodoroTimer {
     }, 250); // Poll at 250ms for precise timing without drift
 
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
+    this._persistState(true);
   }
 
   pause() {
@@ -116,6 +160,7 @@ class PomodoroTimer {
     }
 
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
+    this._persistState(true);
   }
 
   toggle() {
@@ -131,6 +176,7 @@ class PomodoroTimer {
     this.timeLeft = this.totalDuration;
     this._dispatchTick();
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
+    this._persistState(true);
   }
 
   skip() {
@@ -146,6 +192,12 @@ class PomodoroTimer {
     if (remainingSec !== this.timeLeft) {
       this.timeLeft = remainingSec;
       this._dispatchTick();
+      this._persistState(false);
+
+      // Periodically sync to disk every 5 seconds while running
+      if (this.timeLeft % 5 === 0 && typeof Storage !== 'undefined' && Storage.syncWithDisk) {
+        Storage.syncWithDisk(false);
+      }
 
       if (this.settings.tickSound && this.timeLeft > 0) {
         AudioPlayer.playTick();
@@ -166,7 +218,6 @@ class PomodoroTimer {
   _handleSessionFinish(completedNaturally) {
     const finishedMode = this.mode;
 
-    // Play alert sound
     AudioPlayer.playAlert(this.settings.alarmSound, this.settings.soundVolume);
 
     if (completedNaturally) {
@@ -180,14 +231,13 @@ class PomodoroTimer {
       this.onComplete(finishedMode);
     }
 
-    // Determine next mode
     let nextMode = TimerMode.POMODORO;
     let autoStart = false;
 
     if (finishedMode === TimerMode.POMODORO) {
       if (this.cycleCount >= this.settings.cyclesToLongBreak) {
         nextMode = TimerMode.LONG_BREAK;
-        this.cycleCount = 0; // reset cycle
+        this.cycleCount = 0;
       } else {
         nextMode = TimerMode.SHORT_BREAK;
       }
@@ -200,13 +250,16 @@ class PomodoroTimer {
     this.setMode(nextMode, autoStart);
   }
 
-  updateSettings(newSettings) {
+  updateSettings(newSettings, preserveTimeLeft = false) {
     this.settings = { ...this.settings, ...newSettings };
     // If currently stopped, refresh total duration
     if (!this.isRunning) {
       this.totalDuration = this.getDurationForMode(this.mode);
-      this.timeLeft = this.totalDuration;
+      if (!preserveTimeLeft || this.timeLeft > this.totalDuration || this.timeLeft <= 0) {
+        this.timeLeft = this.totalDuration;
+      }
       this._dispatchTick();
+      this._persistState(true);
     }
   }
 }

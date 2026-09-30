@@ -120,8 +120,11 @@ const StatsChart = {
     const canvas = document.getElementById('focusHoursChart');
     if (!canvas) return;
 
+    this.hidePopout();
+
     const ctx = canvas.getContext('2d');
     const dailyData = Storage.getDailyFocusData(daysCount);
+    this._lastDailyData = dailyData;
     const labels = dailyData.map(d => d.label);
 
     // Aggregate unique tasks and total time across the period
@@ -228,14 +231,15 @@ const StatsChart = {
         },
         interaction: {
           mode: 'nearest',
-          intersect: false
+          axis: 'xy',
+          intersect: true
         },
         plugins: {
           legend: {
             display: false
           },
           tooltip: {
-            enabled: false // All tooltips disabled per user request
+            enabled: false // Native canvas tooltips disabled in favor of discreet custom popout
           }
         },
         scales: {
@@ -283,6 +287,7 @@ const StatsChart = {
     });
 
     window.focusChartInstance = focusChartInstance;
+    this.setupPopoutListeners(canvas);
 
     this.renderDailyBreakdown(dailyData, taskColorMap);
     this.updateMetrics(daysCount);
@@ -347,16 +352,25 @@ const StatsChart = {
 
   updateMetrics(daysCount) {
     const summary = Storage.getMetricsSummary(daysCount);
+    const settings = Storage.getSettings();
+    const useRoll = (typeof animateRollingCounter === 'function') && (settings.rollingAnimation !== false);
 
     const totalHoursEl = document.getElementById('statTotalHours');
     const avgHoursEl = document.getElementById('statAvgHours');
     const streakEl = document.getElementById('statStreak');
     const totalPomosEl = document.getElementById('statTotalPomos');
 
-    if (totalHoursEl) totalHoursEl.textContent = `${summary.totalHours}h`;
-    if (avgHoursEl) avgHoursEl.textContent = `${summary.dailyAverageHours}h`;
-    if (streakEl) streakEl.textContent = `${summary.streak} ${summary.streak === 1 ? 'day' : 'days'}`;
-    if (totalPomosEl) totalPomosEl.textContent = summary.totalSessions;
+    if (useRoll) {
+      if (totalHoursEl) animateRollingCounter(totalHoursEl, summary.totalHours, 550, 'h');
+      if (avgHoursEl) animateRollingCounter(avgHoursEl, summary.dailyAverageHours, 550, 'h');
+      if (streakEl) animateRollingCounter(streakEl, summary.streak, 550, summary.streak === 1 ? ' day' : ' days');
+      if (totalPomosEl) animateRollingCounter(totalPomosEl, summary.totalSessions, 550, '');
+    } else {
+      if (totalHoursEl) totalHoursEl.textContent = `${summary.totalHours}h`;
+      if (avgHoursEl) avgHoursEl.textContent = `${summary.dailyAverageHours}h`;
+      if (streakEl) streakEl.textContent = `${summary.streak} ${summary.streak === 1 ? 'day' : 'days'}`;
+      if (totalPomosEl) totalPomosEl.textContent = summary.totalSessions;
+    }
   },
 
   renderSessionLog() {
@@ -397,9 +411,223 @@ const StatsChart = {
   },
 
   _escapeHtml(str) {
+    if (str == null) return '';
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = String(str);
     return div.innerHTML;
+  },
+
+  /**
+   * Set up mouse and touch listeners on chart canvas for the discreet bar popout
+   */
+  setupPopoutListeners(canvas) {
+    if (!canvas || canvas._hasPopoutListeners) return;
+    canvas._hasPopoutListeners = true;
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!focusChartInstance) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const target = this.getBarAtCoordinates(focusChartInstance, mouseX, mouseY);
+      if (target) {
+        this.showPopout(focusChartInstance, target);
+        canvas.style.cursor = 'pointer';
+      } else {
+        this.hidePopout();
+        canvas.style.cursor = 'default';
+      }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      this.hidePopout();
+      canvas.style.cursor = 'default';
+    });
+
+    // Touch support for touchscreens / mobile
+    canvas.addEventListener('touchstart', (e) => {
+      if (!focusChartInstance || !e.touches || e.touches.length === 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const touchX = touch.clientX - rect.left;
+      const touchY = touch.clientY - rect.top;
+      const target = this.getBarAtCoordinates(focusChartInstance, touchX, touchY);
+      if (target) {
+        this.showPopout(focusChartInstance, target);
+      } else {
+        this.hidePopout();
+      }
+    }, { passive: true });
+  },
+
+  /**
+   * Find which task sub-bar corresponds to mouse coordinates
+   */
+  getBarAtCoordinates(chart, mouseX, mouseY) {
+    if (!chart || !chart.data || !chart.data.datasets) return null;
+    const datasets = chart.data.datasets;
+    if (datasets.length === 0) return null;
+    const labelsCount = chart.data.labels ? chart.data.labels.length : 0;
+    if (labelsCount === 0) return null;
+
+    for (let i = 0; i < labelsCount; i++) {
+      const dayBars = [];
+      let minTopY = Infinity;
+      let maxBaseY = -Infinity;
+      let barX = null;
+      let barWidth = 20;
+
+      for (let dsIndex = 0; dsIndex < datasets.length; dsIndex++) {
+        const val = datasets[dsIndex].data[i];
+        if (!val || val <= 0) continue;
+
+        const meta = chart.getDatasetMeta(dsIndex);
+        if (!meta || meta.hidden || !meta.data || !meta.data[i]) continue;
+
+        const bar = meta.data[i];
+        barX = bar.x;
+        if (bar.width) barWidth = bar.width;
+
+        const top = Math.min(bar.y, bar.base);
+        const bottom = Math.max(bar.y, bar.base);
+        if (top < minTopY) minTopY = top;
+        if (bottom > maxBaseY) maxBaseY = bottom;
+
+        dayBars.push({
+          datasetIndex: dsIndex,
+          dataIndex: i,
+          element: bar,
+          top: top,
+          bottom: bottom,
+          center: (top + bottom) / 2
+        });
+      }
+
+      if (dayBars.length === 0 || barX === null) continue;
+
+      // Check horizontal proximity to bar column
+      const halfWidth = (barWidth / 2) + 4; // 4px margin for comfortable hover
+      if (Math.abs(mouseX - barX) <= halfWidth) {
+        // Check if cursor is vertically over the bar (not in empty whitespace above or below)
+        if (mouseY < minTopY - 4 || mouseY > maxBaseY + 4) {
+          return null;
+        }
+
+        // Direct containment check first
+        for (const b of dayBars) {
+          if (mouseY >= b.top - 2 && mouseY <= b.bottom + 2) {
+            return { datasetIndex: b.datasetIndex, dataIndex: b.dataIndex, element: b.element };
+          }
+        }
+
+        // Closest segment fallback (especially helpful for thin 1m slices)
+        let closest = dayBars[0];
+        let minDist = Math.abs(mouseY - closest.center);
+        for (let j = 1; j < dayBars.length; j++) {
+          const dist = Math.abs(mouseY - dayBars[j].center);
+          if (dist < minDist) {
+            minDist = dist;
+            closest = dayBars[j];
+          }
+        }
+        return { datasetIndex: closest.datasetIndex, dataIndex: closest.dataIndex, element: closest.element };
+      }
+    }
+
+    return null;
+  },
+
+  /**
+   * Display the discreet popout near the hovered sub-bar showing which task that time belongs to
+   */
+  showPopout(chart, target) {
+    let popoutEl = document.getElementById('chartBarPopout');
+    const wrapper = document.querySelector('.chart-canvas-wrapper');
+    if (!wrapper) return;
+
+    if (!popoutEl) {
+      popoutEl = document.createElement('div');
+      popoutEl.id = 'chartBarPopout';
+      popoutEl.className = 'chart-bar-popout';
+      popoutEl.setAttribute('aria-hidden', 'true');
+      wrapper.appendChild(popoutEl);
+    }
+
+    const ds = chart.data.datasets[target.datasetIndex];
+    if (!ds) return;
+
+    const taskTitle = ds.label || 'Foco Geral';
+    const taskColor = ds.backgroundColor || '#da4d4f';
+    const dailyData = this._lastDailyData || [];
+    const dayData = dailyData[target.dataIndex];
+    const dayLabel = dayData ? dayData.label : (chart.data.labels[target.dataIndex] || '');
+
+    let minutes = 0;
+    let sessionsCount = 0;
+    if (dayData && dayData.tasks && dayData.tasks[taskTitle]) {
+      minutes = dayData.tasks[taskTitle].minutes;
+      sessionsCount = dayData.tasks[taskTitle].sessionsCount || 0;
+    } else {
+      minutes = Math.round((ds.data[target.dataIndex] || 0) * 60);
+    }
+
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    const timeText = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m} min`;
+
+    popoutEl.innerHTML = `
+      <div class="chart-popout-content">
+        <div class="chart-popout-header">
+          <span class="chart-popout-dot" style="background-color: ${taskColor};"></span>
+          <span class="chart-popout-task" title="${this._escapeHtml(taskTitle)}">${this._escapeHtml(taskTitle)}</span>
+        </div>
+        <div class="chart-popout-meta">
+          <span class="chart-popout-time">${timeText}</span>
+          <span class="chart-popout-sep">•</span>
+          <span class="chart-popout-date">${this._escapeHtml(dayLabel)}</span>
+          ${sessionsCount > 1 ? `<span class="chart-popout-sessions">(${sessionsCount}x)</span>` : ''}
+        </div>
+      </div>
+      <div class="chart-popout-arrow"></div>
+    `;
+
+    // Positioning
+    const bar = target.element;
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const wrapperWidth = wrapperRect.width || 400;
+
+    const targetX = bar.x;
+    const minX = 75;
+    const maxX = Math.max(minX, wrapperWidth - 75);
+    const clampedX = Math.max(minX, Math.min(maxX, targetX));
+    const arrowOffset = Math.round(targetX - clampedX);
+
+    // If bar is near top of canvas, place popout below the bar instead of above
+    const isNearTop = bar.y < 50;
+    const targetY = isNearTop ? Math.round(bar.base + 6) : Math.round(bar.y - 6);
+
+    popoutEl.style.left = `${clampedX}px`;
+    popoutEl.style.top = `${targetY}px`;
+
+    popoutEl.classList.toggle('pos-below', isNearTop);
+    popoutEl.classList.toggle('pos-above', !isNearTop);
+
+    const arrowEl = popoutEl.querySelector('.chart-popout-arrow');
+    if (arrowEl) {
+      arrowEl.style.transform = `translateX(${arrowOffset}px)`;
+    }
+
+    popoutEl.classList.add('visible');
+  },
+
+  /**
+   * Hide the popout smoothly
+   */
+  hidePopout() {
+    const popoutEl = document.getElementById('chartBarPopout');
+    if (popoutEl) {
+      popoutEl.classList.remove('visible');
+    }
   }
 };
 

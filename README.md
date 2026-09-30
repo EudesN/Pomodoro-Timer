@@ -2,9 +2,8 @@
 
 A modern, elegant, and customizable Pomodoro timer with task management, audio feedback, productivity analytics, and native Linux desktop integration.
 
----
 
-## ✨ Features
+## Features
 
 - **Timer & Cycles**: Configurable focus, short, and long breaks with a smooth circular countdown.
 - **Task Management**: Drag-and-drop reordering, estimate tracking, and active task badges.
@@ -48,7 +47,7 @@ To uninstall:
 
 ---
 
-## 📋 Requirements (Desktop Mode)
+## Requirements (Desktop Mode)
 
 - Python 3.8+
 - PyGObject & WebKit2GTK

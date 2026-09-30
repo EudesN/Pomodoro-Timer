@@ -54,6 +54,7 @@ SOCKET_DIR = XDG_RUNTIME_DIR if (XDG_RUNTIME_DIR and os.path.isdir(XDG_RUNTIME_D
 SOCKET_PATH = os.path.join(SOCKET_DIR, "pomus.sock")
 
 _main_window = None
+_main_webview = None
 
 
 def _show_and_present_window(window):
@@ -69,6 +70,22 @@ def _show_and_present_window(window):
                 window.present()
             except Exception:
                 pass
+    return False
+
+
+def _handle_instance_show():
+    """Traz a janela para primeiro plano e, se o timer não estiver rodando, recarrega para aplicar alterações."""
+    global _main_window, _main_webview
+    if _main_window:
+        _show_and_present_window(_main_window)
+    if _main_webview:
+        try:
+            _main_webview.run_javascript(
+                "if (window.timer && !window.timer.isRunning) { window.location.reload(); }",
+                None, None, None
+            )
+        except Exception:
+            pass
     return False
 
 
@@ -135,7 +152,7 @@ def start_single_instance_listener(window):
                     if b"SHOW" in data:
                         try:
                             from gi.repository import GLib
-                            GLib.idle_add(_show_and_present_window, window)
+                            GLib.idle_add(_handle_instance_show)
                         except Exception:
                             pass
                         conn.sendall(b"OK\n")
@@ -303,17 +320,24 @@ def play_sound_native(sound_name, volume=0.8):
     sound_file = os.path.join(SOUNDS_DIR, f"{sound_name}.wav")
     if not os.path.isfile(sound_file):
         if sound_name in ("click", "pop", "tap"):
-            sound_file = os.path.join(SOUNDS_DIR, "tick.wav")
+            sound_file = os.path.join(SOUNDS_DIR, "click.wav")
+            if not os.path.isfile(sound_file):
+                sound_file = os.path.join(SOUNDS_DIR, "tick.wav")
         else:
             sound_file = os.path.join(SOUNDS_DIR, "bell.wav")
     if not os.path.isfile(sound_file):
         return
 
+    vol_float = max(0.01, min(1.0, float(volume)))
+    pw_vol = f"{vol_float:.2f}"
+    pa_vol = str(int(vol_float * 65536))
+    mpv_vol = str(max(1, int(vol_float * 100)))
+
     players = [
-        ["pw-play", sound_file],
-        ["paplay", sound_file],
+        ["pw-play", f"--volume={pw_vol}", sound_file],
+        ["paplay", f"--volume={pa_vol}", sound_file],
         ["canberra-gtk-play", "-f", sound_file],
-        ["mpv", "--no-video", "--volume=" + str(max(1, int(volume * 100))), sound_file]
+        ["mpv", "--no-video", f"--volume={mpv_vol}", sound_file]
     ]
 
     for cmd in players:
@@ -342,12 +366,14 @@ class PomusHTTPHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
     def end_headers(self):
-        # Adiciona cabeçalhos CORS e no-cache para requisições de API
+        # Desabilita cache completamente para que atualizações em arquivos locais reflitam instantaneamente
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         if self.path.startswith("/api/"):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -441,13 +467,11 @@ class PomusHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
         # Endpoint para focar janela existente (instância única): /api/show
         if parsed.path == "/api/show":
-            global _main_window
-            if _main_window:
-                try:
-                    from gi.repository import GLib
-                    GLib.idle_add(_show_and_present_window, _main_window)
-                except Exception:
-                    pass
+            try:
+                from gi.repository import GLib
+                GLib.idle_add(_handle_instance_show)
+            except Exception:
+                pass
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -523,20 +547,24 @@ def setup_system_tray(window=None, gtk_module=None):
         indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
         indicator.set_title("Popomus")
 
-        # Menu de contexto
+        # Context menu (English)
         menu = Gtk.Menu()
 
-        item_show = Gtk.MenuItem(label="Abrir Popomus")
+        item_show = Gtk.MenuItem(label="Open Popomus")
         item_show.connect("activate", lambda _: _tray_show_window(window))
         menu.append(item_show)
 
-        item_hide = Gtk.MenuItem(label="Minimizar para Bandeja")
+        item_hide = Gtk.MenuItem(label="Minimize to Tray")
         item_hide.connect("activate", lambda _: _tray_hide_window(window))
         menu.append(item_hide)
 
+        item_reload = Gtk.MenuItem(label="Reload Application")
+        item_reload.connect("activate", lambda _: _tray_reload_window())
+        menu.append(item_reload)
+
         menu.append(Gtk.SeparatorMenuItem())
 
-        item_quit = Gtk.MenuItem(label="Sair")
+        item_quit = Gtk.MenuItem(label="Quit")
         item_quit.connect("activate", lambda _: _tray_quit(Gtk))
         menu.append(item_quit)
 
@@ -564,8 +592,44 @@ def _tray_hide_window(window):
         window.hide()
 
 
+def _tray_reload_window():
+    """Recarrega a aplicação forçando bypass de cache."""
+    global _main_webview
+    if _main_webview:
+        try:
+            _main_webview.reload_bypass_cache()
+        except Exception:
+            try:
+                _main_webview.reload()
+            except Exception:
+                pass
+
+
+def _flush_persistence(webview, Gtk=None):
+    """Garante que o estado do timer e dados pendentes sejam gravados no disco antes de fechar."""
+    if not webview:
+        return
+    try:
+        webview.run_javascript(
+            "if (window.persistAll) window.persistAll(); else if (window.Storage) Storage.syncWithDisk(true);",
+            None, None, None
+        )
+        if Gtk:
+            t0 = time.time()
+            while time.time() - t0 < 0.25:
+                while Gtk.events_pending():
+                    Gtk.main_iteration_do(False)
+                time.sleep(0.02)
+        else:
+            time.sleep(0.2)
+    except Exception:
+        pass
+
+
 def _tray_quit(Gtk):
-    """Encerra a aplicação pela bandeja."""
+    """Encerra a aplicação pela bandeja garantindo persistência do timer e dados."""
+    global _main_webview
+    _flush_persistence(_main_webview, Gtk)
     Gtk.main_quit()
 
 
@@ -652,6 +716,11 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         data_dir = os.path.join(XDG_POMUS_DIR, "webkit_data")
         cache_dir = os.path.join(XDG_POMUS_DIR, "webkit_cache")
         os.makedirs(data_dir, exist_ok=True)
+        # Limpa cache em disco residual do WebKit para garantir que os arquivos locais sempre atualizem
+        try:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        except Exception:
+            pass
         os.makedirs(cache_dir, exist_ok=True)
 
         try:
@@ -662,6 +731,10 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
                 disk_cache_directory=os.path.join(cache_dir, "diskcache"),
             )
             context = WebKit2.WebContext.new_with_website_data_manager(data_manager)
+            try:
+                context.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+            except Exception:
+                pass
             webview = WebKit2.WebView.new_with_context(context)
         except Exception:
             webview = WebKit2.WebView()
@@ -676,6 +749,11 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         settings.set_enable_webaudio(False)
         settings.set_enable_media(False)
         settings.set_enable_smooth_scrolling(True)
+        if hasattr(settings, "set_enable_accelerated_2d_canvas"):
+            try:
+                settings.set_enable_accelerated_2d_canvas(True)
+            except Exception:
+                pass
 
         def on_load_failed(wv, event, failing_uri, error):
             print(f"[POMUS] Erro ao carregar {failing_uri}: {error.message if hasattr(error, 'message') else error}")
@@ -693,7 +771,7 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         webview.load_uri(url)
         window.add(webview)
 
-        # Atalho F11 para alternar Tela Cheia na janela nativa
+        # Atalhos de teclado: F11 tela cheia, F5 / Ctrl+R recarregar, F12 devtools
         def on_key_press(widget, event):
             if event.keyval == Gdk.KEY_F11:
                 if window._is_fullscreen:
@@ -703,6 +781,24 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
                     window.fullscreen()
                     window._is_fullscreen = True
                 return True
+
+            ctrl_pressed = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+
+            # F5 ou Ctrl+R: Recarregar aplicação sem cache
+            if event.keyval == Gdk.KEY_F5 or (ctrl_pressed and event.keyval in (Gdk.KEY_r, Gdk.KEY_R)):
+                webview.reload_bypass_cache()
+                return True
+
+            # F12 ou Ctrl+Shift+I: Abrir Web Inspector
+            if event.keyval == Gdk.KEY_F12 or (ctrl_pressed and event.keyval in (Gdk.KEY_i, Gdk.KEY_I)):
+                try:
+                    inspector = webview.get_inspector()
+                    if inspector:
+                        inspector.show()
+                        return True
+                except Exception:
+                    pass
+
             return False
 
         window.connect("key-press-event", on_key_press)
@@ -714,20 +810,23 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
 
         # Comportamento ao fechar: minimizar para bandeja se ativa, senão sair
         def on_delete_event(widget, event):
+            _flush_persistence(webview, Gtk)
             if tray_active:
                 widget.hide()
                 return True  # Impede destruição, mantém na bandeja
             return False  # Permite destruir normalmente
 
         def on_destroy(widget):
+            _flush_persistence(webview, Gtk)
             Gtk.main_quit()
 
         window.connect("delete-event", on_delete_event)
         window.connect("destroy", on_destroy)
 
         # ── Instância única e socket listener ──
-        global _main_window
+        global _main_window, _main_webview
         _main_window = window
+        _main_webview = webview
         start_single_instance_listener(window)
 
         # ── Exibir janela ──
@@ -847,7 +946,8 @@ def main():
 
     # Graceful shutdown com SIGTERM/SIGINT
     def handle_signal(signum, frame):
-        print("\n[POMUS] Sinal recebido. Encerrando...")
+        print("\n[POMUS] Sinal recebido. Encerrando e gravando estado...")
+        _flush_persistence(_main_webview)
         if os.path.exists(SOCKET_PATH):
             try:
                 os.remove(SOCKET_PATH)
@@ -860,6 +960,7 @@ def main():
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
     try:
         if not args.browser:
@@ -880,6 +981,7 @@ def main():
         pass
     finally:
         print("\n[POMUS] Encerrando servidor e aplicacao.")
+        _flush_persistence(_main_webview)
         if os.path.exists(SOCKET_PATH):
             try:
                 os.remove(SOCKET_PATH)

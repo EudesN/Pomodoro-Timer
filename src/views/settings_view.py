@@ -61,7 +61,6 @@ class SettingsWindow(ctk.CTkToplevel):
             entry.pack(side="right", padx=12, pady=8)
             self._entries[key] = entry
 
-        # Separador
         ctk.CTkFrame(self, fg_color=HOVER, height=1).pack(fill="x", padx=28, pady=(16, 14))
 
         ctk.CTkButton(

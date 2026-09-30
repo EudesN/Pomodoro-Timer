@@ -8,7 +8,8 @@ const STORAGE_KEYS = {
   SETTINGS: 'pomus_settings',
   TASKS: 'pomus_tasks',
   SESSIONS: 'pomus_sessions',
-  ACTIVE_TASK: 'pomus_active_task'
+  ACTIVE_TASK: 'pomus_active_task',
+  TIMER_STATE: 'pomus_timer_state'
 };
 
 // Legacy keys migration helper
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS = {
   alarmSound: 'bell',    // bell, zen, beep, marimba
   soundVolume: 0.8,
   tickSound: false,
+  rollingAnimation: true, // Number Rolling Animation
   theme: 'sunset',       // sunset, earth, dusk, night, gunmetal, custom
   customColorPomo: '#da4d4f',
   customColorShort: '#ea845e',
@@ -178,6 +180,36 @@ const Storage = {
       localStorage.removeItem(STORAGE_KEYS.ACTIVE_TASK);
     }
     this.syncWithDisk(true);
+  },
+
+  // --- Timer State Persistence ---
+  getTimerState() {
+    this._migrate();
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.TIMER_STATE);
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      console.error('Error loading timer state:', e);
+      return null;
+    }
+  },
+
+  saveTimerState(state, syncDisk = false) {
+    if (!state) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.TIMER_STATE, JSON.stringify(state));
+      if (syncDisk) {
+        this.syncWithDisk(true);
+      }
+    } catch (e) {
+      console.error('Error saving timer state:', e);
+    }
+  },
+
+  clearTimerState() {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.TIMER_STATE);
+    } catch (e) {}
   },
 
   // --- Focus Sessions Log ---
@@ -391,11 +423,16 @@ const Storage = {
 
     const doSync = () => {
       clearTimeout(this.syncDebounceTimer);
+      const currentTimerState = (typeof window !== 'undefined' && window.timer && typeof window.timer.getState === 'function')
+        ? window.timer.getState()
+        : this.getTimerState();
+
       const payload = {
         settings: this.getSettings(),
         tasks: this.getTasks(),
         sessions: this.getSessions(),
         activeTaskId: this.getActiveTaskId(),
+        timerState: currentTimerState,
         updatedAt: new Date().toISOString()
       };
 
@@ -452,6 +489,10 @@ const Storage = {
             }
             updated = true;
           }
+          if (data.timerState && typeof data.timerState === 'object') {
+            localStorage.setItem(STORAGE_KEYS.TIMER_STATE, JSON.stringify(data.timerState));
+            updated = true;
+          }
           return updated;
         }
       }
@@ -470,7 +511,8 @@ const Storage = {
       settings: this.getSettings(),
       tasks: this.getTasks(),
       sessions: this.getSessions(),
-      activeTaskId: this.getActiveTaskId()
+      activeTaskId: this.getActiveTaskId(),
+      timerState: this.getTimerState()
     };
     return JSON.stringify(payload, null, 2);
   },
@@ -483,6 +525,7 @@ const Storage = {
         if (Array.isArray(data.tasks)) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(data.tasks));
         if (Array.isArray(data.sessions)) localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(data.sessions));
         if (data.activeTaskId) localStorage.setItem(STORAGE_KEYS.ACTIVE_TASK, data.activeTaskId);
+        if (data.timerState) localStorage.setItem(STORAGE_KEYS.TIMER_STATE, JSON.stringify(data.timerState));
         this.syncWithDisk();
         return true;
       }
