@@ -720,25 +720,32 @@ body.is-fullscreen .app-container {
 }
 
 .dropdown-item {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
   background: transparent;
   border: none;
-  padding: 0.6rem 0.8rem;
+  padding: 0.65rem 0.85rem;
   border-radius: 0.45rem;
   font-family: var(--font-main);
   font-size: 0.85rem;
   font-weight: 600;
+  line-height: 1.2;
   color: #333333;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: flex-start;
+  gap: 0.55rem;
   cursor: pointer;
   text-align: left;
+  white-space: nowrap;
   transition: var(--transition-interactive);
 }
 
 .dropdown-item svg {
   width: 1rem;
   height: 1rem;
+  flex-shrink: 0;
   stroke: currentColor;
   stroke-width: 2;
   fill: none;
@@ -957,6 +964,52 @@ body.is-fullscreen .app-container {
   color: #888888;
   font-family: var(--font-main);
   letter-spacing: 0.02em;
+}
+
+/* Individual Task Timer Chip */
+.task-timer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #555555;
+  background: #f1f3f5;
+  padding: 0.22rem 0.5rem;
+  border-radius: 0.35rem;
+  border: 1px solid #e2e8f0;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  transition: var(--transition-interactive);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.task-item.active-focus .task-timer-chip {
+  background: #ffffff;
+  color: #111111;
+  border-color: #222222;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.task-timer-chip.is-break {
+  color: #ea845e;
+  background: rgba(234, 132, 94, 0.1);
+  border-color: rgba(234, 132, 94, 0.3);
+}
+
+.task-item.active-focus .task-timer-chip.is-break {
+  background: rgba(234, 132, 94, 0.15);
+  border-color: #ea845e;
+}
+
+.task-timer-chip svg {
+  width: 0.72rem;
+  height: 0.72rem;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  fill: none;
 }
 
 .task-card-menu-btn {
@@ -1927,6 +1980,8 @@ input:checked + .slider:before {
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
+  white-space: nowrap;
+  width: max-content;
   transform: translate(-50%, -100%) scale(0.95);
   transition: opacity 0.15s cubic-bezier(0.2, 0, 0, 1),
               transform 0.15s cubic-bezier(0.2, 0, 0, 1);
@@ -1952,20 +2007,21 @@ input:checked + .slider:before {
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.55rem;
-  padding: 0.4rem 0.65rem;
+  padding: 0.45rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  min-width: 110px;
-  max-width: 220px;
+  gap: 0.25rem;
+  width: max-content;
+  max-width: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
 }
 
 .chart-popout-header {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  overflow: hidden;
+  white-space: nowrap;
 }
 
 .chart-popout-dot {
@@ -1978,46 +2034,55 @@ input:checked + .slider:before {
 
 .chart-popout-task {
   font-family: var(--font-timer);
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   font-weight: 700;
   color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 260px;
   line-height: 1.2;
 }
 
 .chart-popout-meta {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.4rem;
   font-family: var(--font-timer);
   line-height: 1.2;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
 .chart-popout-time {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 800;
   color: #f39336;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .chart-popout-sep {
   font-size: 0.65rem;
   color: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
 }
 
 .chart-popout-date {
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.65);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .chart-popout-sessions {
-  font-size: 0.64rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Arrow indicator */

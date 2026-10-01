@@ -111,7 +111,7 @@ class PomodoroTimer {
 
     this.isRunning = false;
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
-    this._dispatchTick();
+    this._dispatchTick(true);
     return true;
   }
 
@@ -128,7 +128,7 @@ class PomodoroTimer {
     this.timeLeft = this.totalDuration;
 
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
-    this._dispatchTick();
+    this._dispatchTick(true);
     this._persistState(true);
 
     if (autoStart) {
@@ -174,7 +174,7 @@ class PomodoroTimer {
   reset() {
     this.pause();
     this.timeLeft = this.totalDuration;
-    this._dispatchTick();
+    this._dispatchTick(true);
     this.onStateChange(this.mode, this.isRunning, this.cycleCount);
     this._persistState(true);
   }
@@ -210,9 +210,9 @@ class PomodoroTimer {
     }
   }
 
-  _dispatchTick() {
+  _dispatchTick(isInstant = false) {
     const progress = (this.totalDuration - this.timeLeft) / this.totalDuration;
-    this.onTick(this.timeLeft, this.totalDuration, Math.min(1, Math.max(0, progress)));
+    this.onTick(this.timeLeft, this.totalDuration, Math.min(1, Math.max(0, progress)), isInstant);
   }
 
   _handleSessionFinish(completedNaturally) {
@@ -258,7 +258,7 @@ class PomodoroTimer {
       if (!preserveTimeLeft || this.timeLeft > this.totalDuration || this.timeLeft <= 0) {
         this.timeLeft = this.totalDuration;
       }
-      this._dispatchTick();
+      this._dispatchTick(true);
       this._persistState(true);
     }
   }

@@ -80,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputCyclesToLong = document.getElementById('inputCyclesToLong');
   const toggleAutoBreaks = document.getElementById('toggleAutoBreaks');
   const toggleAutoPomos = document.getElementById('toggleAutoPomos');
+  const toggleIndividualTimers = document.getElementById('toggleIndividualTimers');
   const inputSoundVolume = document.getElementById('inputSoundVolume');
   const volumePercentDisplay = document.getElementById('volumePercentDisplay');
   const selectAlarmSound = document.getElementById('selectAlarmSound');
@@ -105,6 +106,69 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeTaskId = Storage.getActiveTaskId();
   let soundMuted = (settings.soundVolume !== undefined) ? (settings.soundVolume <= 0) : false;
   let timer = null;
+  let draggedTaskId = null;
+  let editingTaskId = null;
+
+  // Helpers for Individual Task Timers
+  function saveCurrentTimerToActiveTask(forcePause = false) {
+    if (!settings.individualTimers || !activeTaskId) return;
+    const currentTask = tasks.find(t => t.id === activeTaskId);
+    if (!currentTask) return;
+
+    if (forcePause && timer && timer.isRunning) {
+      timer.pause();
+    }
+
+    if (!timer) return;
+
+    currentTask.timerState = {
+      mode: timer.mode,
+      timeLeft: timer.timeLeft,
+      totalDuration: timer.totalDuration,
+      cycleCount: timer.cycleCount,
+      isRunning: false,
+      savedAt: Date.now()
+    };
+
+    Storage.saveTasks(tasks);
+  }
+
+  function switchActiveTask(newTaskId) {
+    if (!newTaskId || newTaskId === activeTaskId) return;
+
+    if (settings.individualTimers) {
+      // 1. Pausa e salva o estado do timer da tarefa anterior
+      if (activeTaskId) {
+        saveCurrentTimerToActiveTask(true);
+      }
+
+      // 2. Define a nova tarefa ativa
+      activeTaskId = newTaskId;
+      Storage.setActiveTaskId(activeTaskId);
+
+      // 3. Restaura ou inicializa o timer da nova tarefa
+      const targetTask = tasks.find(t => t.id === newTaskId);
+      if (targetTask) {
+        if (targetTask.timerState) {
+          timer.restoreState(targetTask.timerState);
+        } else {
+          timer.pause();
+          timer.cycleCount = 0;
+          timer.setMode(TimerMode.POMODORO, false);
+          targetTask.timerState = timer.getState();
+          Storage.saveTasks(tasks);
+        }
+        updateCycleDisplay(timer.cycleCount, true);
+      }
+    } else {
+      activeTaskId = newTaskId;
+      Storage.setActiveTaskId(activeTaskId);
+    }
+
+    renderTasks();
+    updateActiveTaskBanner();
+    updateTaskEstimate();
+  }
 
   function syncVolumeUI(vol) {
     const safeVol = (vol !== undefined && vol !== null) ? Number(vol) : 0.8;
@@ -130,6 +194,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Salvar estado do timer e sincronizar com o disco ao fechar janela ou trocar visibilidade
   window.persistAll = function() {
     if (timer) {
+      if (settings.individualTimers && activeTaskId) {
+        saveCurrentTimerToActiveTask(false);
+      }
       Storage.saveTimerState(timer.getState(), true);
     }
     Storage.syncWithDisk(true);
@@ -156,12 +223,27 @@ document.addEventListener('DOMContentLoaded', () => {
       renderTasks();
       if (timerRoller) timerRoller.setEnabled(settings.rollingAnimation !== false);
       if (timer && !timer.isRunning) {
-        const diskTimerState = Storage.getTimerState();
-        if (diskTimerState && diskTimerState.timeLeft > 0) {
-          timer.restoreState(diskTimerState);
+        if (settings.individualTimers && activeTaskId) {
+          const activeTask = tasks.find(t => t.id === activeTaskId);
+          if (activeTask && activeTask.timerState) {
+            timer.restoreState(activeTask.timerState);
+          } else {
+            const diskTimerState = Storage.getTimerState();
+            if (diskTimerState && diskTimerState.timeLeft > 0) {
+              timer.restoreState(diskTimerState);
+            } else {
+              timer.updateSettings(settings, true);
+            }
+          }
         } else {
-          timer.updateSettings(settings, true);
+          const diskTimerState = Storage.getTimerState();
+          if (diskTimerState && diskTimerState.timeLeft > 0) {
+            timer.restoreState(diskTimerState);
+          } else {
+            timer.updateSettings(settings, true);
+          }
         }
+        updateCycleDisplay(timer.cycleCount);
       }
       updateActiveTaskBanner();
       updateTaskEstimate();
@@ -201,25 +283,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
   timer = new PomodoroTimer({
     settings: settings,
-    onTick: (timeLeft, totalDuration, progress) => {
+    onTick: (timeLeft, totalDuration, progress, isInstant = false) => {
       const mins = Math.floor(timeLeft / 60).toString().padStart(2, '0');
       const secs = (timeLeft % 60).toString().padStart(2, '0');
       const formatted = `${mins}:${secs}`;
 
       if (timerRoller) {
-        const isFirst = (lastTimeLeft === null);
-        const dir = (isFirst || timeLeft < lastTimeLeft) ? 'down' : 'up';
-        timerRoller.setValue(formatted, dir, isFirst);
+        if (isInstant) {
+          timerRoller.setValue(formatted, null, true);
+        } else {
+          const isFirst = (lastTimeLeft === null);
+          const dir = (isFirst || timeLeft < lastTimeLeft) ? 'down' : 'up';
+          timerRoller.setValue(formatted, dir, isFirst);
+        }
       } else {
         timerDigits.textContent = formatted;
       }
       lastTimeLeft = timeLeft;
 
       const offset = RING_CIRCUMFERENCE * (1 - progress);
-      timerRingProgress.style.strokeDashoffset = offset;
+      if (isInstant) {
+        timerRingProgress.style.transition = 'none';
+        timerRingProgress.style.strokeDashoffset = offset;
+        void timerRingProgress.offsetWidth;
+        timerRingProgress.style.transition = '';
+      } else {
+        timerRingProgress.style.strokeDashoffset = offset;
+      }
 
       const modeLabel = timer.mode === TimerMode.POMODORO ? 'Focus' : 'Break';
       document.title = `(${formatted}) ${modeLabel} | Popomus`;
+
+      // Task timer chip updates strictly upon pause, reset or task switch per user request
     },
     onStateChange: (mode, isRunning, cycleCount) => {
       body.setAttribute('data-mode', mode);
@@ -248,6 +343,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (iconTimerPlay) iconTimerPlay.style.display = 'block';
         if (iconTimerPause) iconTimerPause.style.display = 'none';
         body.classList.remove('timer-running');
+        if (settings.individualTimers && activeTaskId) {
+          saveCurrentTimerToActiveTask(false);
+          renderTasks();
+        }
       }
 
       updateCycleDisplay(cycleCount);
@@ -267,6 +366,9 @@ document.addEventListener('DOMContentLoaded', () => {
           if (activeTask.actCycles >= (activeTask.estCycles || 1)) {
             activeTask.completed = true;
           }
+          if (settings.individualTimers && activeTask.timerState) {
+            activeTask.timerState.cycleCount = timer.cycleCount;
+          }
           Storage.saveTasks(tasks);
           renderTasks();
           updateActiveTaskBanner();
@@ -281,28 +383,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.timer = timer;
 
-  function updateCycleDisplay(cycleCount) {
-    const current = (cycleCount % settings.cyclesToLongBreak) + 1;
+  function updateCycleDisplay(cycleCount, isInstant = false) {
+    const current = ((cycleCount || 0) % settings.cyclesToLongBreak) + 1;
     const newText = `#${current}`;
     if (cycleText) {
       if (cycleText.textContent !== newText) {
         cycleText.textContent = newText;
-        if (settings.rollingAnimation !== false) {
+        if (!isInstant && settings.rollingAnimation !== false) {
           cycleText.classList.remove('cycle-roll');
           void cycleText.offsetWidth; // trigger reflow
           cycleText.classList.add('cycle-roll');
+        } else {
+          cycleText.classList.remove('cycle-roll');
         }
       }
     }
   }
 
   // Initial trigger to paint timer (restaura estado salvo ou reinicia)
-  const initialTimerState = Storage.getTimerState();
-  if (initialTimerState && timer.restoreState(initialTimerState)) {
-    // Estado restaurado com sucesso do disco / localStorage
-  } else {
-    timer.reset();
+  let initialRestored = false;
+  if (settings.individualTimers && activeTaskId) {
+    const activeTask = tasks.find(t => t.id === activeTaskId);
+    if (activeTask && activeTask.timerState) {
+      initialRestored = timer.restoreState(activeTask.timerState);
+    }
   }
+  if (!initialRestored) {
+    const initialTimerState = Storage.getTimerState();
+    if (initialTimerState && timer.restoreState(initialTimerState)) {
+      // Estado restaurado com sucesso do disco / localStorage
+    } else {
+      timer.reset();
+    }
+  }
+  updateCycleDisplay(timer.cycleCount);
 
   // --------------------------------------------------------------------------
   // TIMER CONTROLS & SOUNDS
@@ -316,20 +430,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnTimerReset.addEventListener('click', () => {
     timer.reset();
+    if (settings.individualTimers) {
+      saveCurrentTimerToActiveTask(false);
+      renderTasks();
+    }
   });
 
   btnTimerSkip.addEventListener('click', () => {
     timer.skip();
+    if (settings.individualTimers) {
+      saveCurrentTimerToActiveTask(false);
+      renderTasks();
+    }
   });
 
   tabPomodoro.addEventListener('click', () => {
     timer.setMode(TimerMode.POMODORO);
+    if (settings.individualTimers) {
+      saveCurrentTimerToActiveTask(false);
+      renderTasks();
+    }
   });
   tabShortBreak.addEventListener('click', () => {
     timer.setMode(TimerMode.SHORT_BREAK);
+    if (settings.individualTimers) {
+      saveCurrentTimerToActiveTask(false);
+      renderTasks();
+    }
   });
   tabLongBreak.addEventListener('click', () => {
     timer.setMode(TimerMode.LONG_BREAK);
+    if (settings.individualTimers) {
+      saveCurrentTimerToActiveTask(false);
+      renderTasks();
+    }
   });
 
   // Sound toggle button in header
@@ -445,9 +579,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // --------------------------------------------------------------------------
   // TASKS MANAGEMENT: Drag & Drop + Active Task Highlight + Expandable Edit Drawer
   // --------------------------------------------------------------------------
-  let draggedTaskId = null;
-  let editingTaskId = null;
-
   function renderTasks() {
     tasksList.innerHTML = '';
 
@@ -475,6 +606,31 @@ document.addEventListener('DOMContentLoaded', () => {
       const isCompleted = !!task.completed;
       const isEditing = task.id === editingTaskId;
 
+      let timerChipHtml = '';
+      if (settings.individualTimers) {
+        let taskTimeLeft;
+        let taskMode = TimerMode.POMODORO;
+        if (task.timerState && typeof task.timerState.timeLeft === 'number') {
+          taskTimeLeft = task.timerState.timeLeft;
+          taskMode = task.timerState.mode || TimerMode.POMODORO;
+        } else {
+          taskTimeLeft = (settings.workTime || 25) * 60;
+          taskMode = TimerMode.POMODORO;
+        }
+        const chipMins = Math.floor(taskTimeLeft / 60).toString().padStart(2, '0');
+        const chipSecs = (taskTimeLeft % 60).toString().padStart(2, '0');
+        const chipFormatted = `${chipMins}:${chipSecs}`;
+        const isBreak = (taskMode !== TimerMode.POMODORO);
+        const titleMode = isBreak ? (taskMode === TimerMode.LONG_BREAK ? 'Long Break' : 'Short Break') : 'Pomodoro';
+
+        timerChipHtml = `
+          <span id="taskTimerChip_${task.id}" class="task-timer-chip ${isBreak ? 'is-break' : ''}" data-action="select" title="${titleMode}: ${chipFormatted}">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>
+            <span class="task-timer-chip-text">${chipFormatted}</span>
+          </span>
+        `;
+      }
+
       const taskEl = document.createElement('div');
       taskEl.className = `task-item ${isSelected ? 'active-focus' : ''} ${isCompleted ? 'completed' : ''} ${isEditing ? 'is-editing' : ''}`;
       taskEl.dataset.id = task.id;
@@ -493,6 +649,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
 
         <div class="task-item-right">
+          ${timerChipHtml}
           <span class="task-pomos-counter" data-action="select">${act} / ${est}</span>
           <button class="task-card-menu-btn ${isEditing ? 'active' : ''}" data-action="menu" aria-label="${isEditing ? 'Close options' : 'Task options'}">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
@@ -619,11 +776,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateActiveTaskBanner() {
+    if (!activeTaskBanner) return;
     const activeTask = tasks.find(t => t.id === activeTaskId);
     if (activeTask) {
       activeTaskBanner.style.display = 'flex';
-      activeTaskTitle.textContent = activeTask.title;
-      activeTaskCycles.textContent = `${activeTask.actCycles || 0}/${activeTask.estCycles || 1} pomos`;
+      if (activeTaskTitle) activeTaskTitle.textContent = activeTask.title;
+      if (activeTaskCycles) activeTaskCycles.textContent = `${activeTask.actCycles || 0}/${activeTask.estCycles || 1} pomos`;
     } else {
       activeTaskBanner.style.display = 'none';
     }
@@ -711,11 +869,25 @@ document.addEventListener('DOMContentLoaded', () => {
       createdAt: Date.now()
     };
 
+    if (settings.individualTimers) {
+      newTask.timerState = {
+        mode: TimerMode.POMODORO,
+        timeLeft: (settings.workTime || 25) * 60,
+        totalDuration: (settings.workTime || 25) * 60,
+        cycleCount: 0,
+        isRunning: false,
+        savedAt: Date.now()
+      };
+    }
+
     tasks.push(newTask);
 
     if (!activeTaskId) {
       activeTaskId = newTask.id;
       Storage.setActiveTaskId(activeTaskId);
+      if (settings.individualTimers && newTask.timerState) {
+        timer.restoreState(newTask.timerState);
+      }
     }
 
     Storage.saveTasks(tasks);
@@ -733,10 +905,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnClearCompletedTasks.addEventListener('click', () => {
+    const activeWasDeleted = tasks.some(t => t.id === activeTaskId && t.completed);
     tasks = tasks.filter(t => !t.completed);
-    if (!tasks.some(t => t.id === activeTaskId)) {
+    if (activeWasDeleted || !tasks.some(t => t.id === activeTaskId)) {
       activeTaskId = tasks.length > 0 ? tasks[0].id : null;
       Storage.setActiveTaskId(activeTaskId);
+      if (settings.individualTimers) {
+        if (activeTaskId) {
+          const nextTask = tasks.find(t => t.id === activeTaskId);
+          if (nextTask && nextTask.timerState) {
+            timer.restoreState(nextTask.timerState);
+          } else {
+            timer.pause();
+            timer.setMode(TimerMode.POMODORO, false);
+          }
+        } else {
+          timer.pause();
+          timer.setMode(TimerMode.POMODORO, false);
+        }
+      }
     }
     Storage.saveTasks(tasks);
     updateTaskEstimate();
@@ -750,6 +937,10 @@ document.addEventListener('DOMContentLoaded', () => {
       activeTaskId = null;
       editingTaskId = null;
       Storage.setActiveTaskId(null);
+      if (settings.individualTimers) {
+        timer.pause();
+        timer.setMode(TimerMode.POMODORO, false);
+      }
       Storage.saveTasks(tasks);
       updateTaskEstimate();
       renderTasks();
@@ -791,10 +982,25 @@ document.addEventListener('DOMContentLoaded', () => {
         editingTaskId = null;
         renderTasks();
       } else if (editAction === 'delete') {
+        const wasActive = (activeTaskId === taskId);
         tasks = tasks.filter(t => t.id !== taskId);
-        if (activeTaskId === taskId) {
+        if (wasActive) {
           activeTaskId = tasks.length > 0 ? tasks[0].id : null;
           Storage.setActiveTaskId(activeTaskId);
+          if (settings.individualTimers) {
+            if (activeTaskId) {
+              const nextTask = tasks.find(t => t.id === activeTaskId);
+              if (nextTask && nextTask.timerState) {
+                timer.restoreState(nextTask.timerState);
+              } else {
+                timer.pause();
+                timer.setMode(TimerMode.POMODORO, false);
+              }
+            } else {
+              timer.pause();
+              timer.setMode(TimerMode.POMODORO, false);
+            }
+          }
         }
         editingTaskId = null;
         Storage.saveTasks(tasks);
@@ -844,9 +1050,7 @@ document.addEventListener('DOMContentLoaded', () => {
       renderTasks();
     } else {
       // Default: select task
-      activeTaskId = taskId;
-      Storage.setActiveTaskId(activeTaskId);
-      renderTasks();
+      switchActiveTask(taskId);
     }
   });
 
@@ -876,6 +1080,9 @@ document.addEventListener('DOMContentLoaded', () => {
     inputCyclesToLong.value = settings.cyclesToLongBreak;
     toggleAutoBreaks.checked = settings.autoStartBreaks;
     toggleAutoPomos.checked = settings.autoStartPomodoros;
+    if (toggleIndividualTimers) {
+      toggleIndividualTimers.checked = !!settings.individualTimers;
+    }
     selectAlarmSound.value = settings.alarmSound;
     toggleTickSound.checked = !!settings.tickSound;
     if (toggleRollingAnimation) toggleRollingAnimation.checked = (settings.rollingAnimation !== false);
@@ -928,6 +1135,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const checkedTheme = document.querySelector('input[name="settingsTheme"]:checked')?.value || 'sunset';
     const volPct = inputSoundVolume ? parseInt(inputSoundVolume.value, 10) : 80;
     const volVal = Math.min(1, Math.max(0, volPct / 100));
+    const individualVal = toggleIndividualTimers ? toggleIndividualTimers.checked : false;
+    const individualChanged = (settings.individualTimers !== individualVal);
 
     settings = {
       ...settings,
@@ -937,6 +1146,7 @@ document.addEventListener('DOMContentLoaded', () => {
       cyclesToLongBreak: cyclesVal,
       autoStartBreaks: toggleAutoBreaks.checked,
       autoStartPomodoros: toggleAutoPomos.checked,
+      individualTimers: individualVal,
       soundVolume: volVal,
       alarmSound: selectAlarmSound.value,
       tickSound: toggleTickSound.checked,
@@ -946,6 +1156,40 @@ document.addEventListener('DOMContentLoaded', () => {
       customColorShort: colorShortInput.value,
       customColorLong: colorLongInput.value
     };
+
+    if (individualChanged && individualVal) {
+      if (activeTaskId) {
+        saveCurrentTimerToActiveTask(false);
+      }
+      tasks.forEach(t => {
+        if (!t.timerState) {
+          t.timerState = {
+            mode: TimerMode.POMODORO,
+            timeLeft: workVal * 60,
+            totalDuration: workVal * 60,
+            cycleCount: 0,
+            isRunning: false,
+            savedAt: Date.now()
+          };
+        }
+      });
+      Storage.saveTasks(tasks);
+    }
+
+    if (settings.individualTimers) {
+      tasks.forEach(t => {
+        if (t.timerState) {
+          const modeDur = t.timerState.mode === TimerMode.SHORT_BREAK
+            ? shortVal * 60
+            : (t.timerState.mode === TimerMode.LONG_BREAK ? longVal * 60 : workVal * 60);
+          if (t.timerState.timeLeft === t.timerState.totalDuration || t.timerState.timeLeft > modeDur) {
+            t.timerState.timeLeft = modeDur;
+          }
+          t.timerState.totalDuration = modeDur;
+        }
+      });
+      Storage.saveTasks(tasks);
+    }
 
     if (timerRoller) {
       timerRoller.setEnabled(settings.rollingAnimation !== false);
@@ -971,6 +1215,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateCycleDisplay(timer.cycleCount);
     updateTaskEstimate();
+    renderTasks();
     settingsDialog.close();
   });
 
@@ -1046,7 +1291,16 @@ document.addEventListener('DOMContentLoaded', () => {
           iconSoundOff.style.display = soundMuted ? 'block' : 'none';
           applyTheme(settings.theme || 'sunset');
           renderTasks();
-          timer.updateSettings(settings);
+          if (settings.individualTimers && activeTaskId) {
+            const actTask = tasks.find(t => t.id === activeTaskId);
+            if (actTask && actTask.timerState) {
+              timer.restoreState(actTask.timerState);
+            } else {
+              timer.updateSettings(settings);
+            }
+          } else {
+            timer.updateSettings(settings);
+          }
           settingsDialog.close();
         } else {
           alert('Import error: Invalid file format.');

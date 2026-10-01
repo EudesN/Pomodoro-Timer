@@ -141,14 +141,6 @@
       </section>
     </main>
 
-    <!-- Active Task Banner -->
-    <div id="activeTaskBanner" class="active-task-banner" style="display: none;">
-      <div class="active-task-info">
-        <span class="active-task-badge">Active Task</span>
-        <span id="activeTaskTitle" class="active-task-title">Task Title</span>
-      </div>
-      <span id="activeTaskCycles" class="active-task-cycles">0/1 pomos</span>
-    </div>
 
     <!-- ========================================================================
          TASKS SECTION (Inspired by Pomofocus)
@@ -426,6 +418,18 @@
           </div>
           <label class="switch" for="toggleAutoPomos">
             <input type="checkbox" id="toggleAutoPomos">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Individual Task Timers -->
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">Individual Task Timers</span>
+            <span class="toggle-desc">Each task maintains its own timer and saves remaining time when switching</span>
+          </div>
+          <label class="switch" for="toggleIndividualTimers">
+            <input type="checkbox" id="toggleIndividualTimers">
             <span class="slider"></span>
           </label>
         </div>

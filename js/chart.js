@@ -221,7 +221,7 @@ const StatsChart = {
         labels: labels,
         datasets: datasets
       },
-      plugins: [barLabelsPlugin],
+      plugins: [],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -596,9 +596,11 @@ const StatsChart = {
     const wrapperRect = wrapper.getBoundingClientRect();
     const wrapperWidth = wrapperRect.width || 400;
 
+    const popoutWidth = popoutEl.offsetWidth || 150;
+    const halfWidth = Math.round(popoutWidth / 2);
     const targetX = bar.x;
-    const minX = 75;
-    const maxX = Math.max(minX, wrapperWidth - 75);
+    const minX = halfWidth + 8;
+    const maxX = Math.max(minX, wrapperWidth - halfWidth - 8);
     const clampedX = Math.max(minX, Math.min(maxX, targetX));
     const arrowOffset = Math.round(targetX - clampedX);
 

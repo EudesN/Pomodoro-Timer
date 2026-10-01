@@ -28,6 +28,7 @@ class SettingsManager:
             "work_time": 1500,
             "short_break": 300,
             "long_break": 900,
-            "cycles_to_long_break": 4
+            "cycles_to_long_break": 4,
+            "individual_timers": False
         }
         self.save_settings(default_values)

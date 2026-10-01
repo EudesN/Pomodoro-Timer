@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = {
   cyclesToLongBreak: 4,  // count
   autoStartBreaks: false,
   autoStartPomodoros: false,
+  individualTimers: false,
   alarmSound: 'bell',    // bell, zen, beep, marimba
   soundVolume: 0.8,
   tickSound: false,

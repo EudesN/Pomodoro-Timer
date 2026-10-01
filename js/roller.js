@@ -55,12 +55,12 @@ class DigitRoller {
     this.element.setAttribute('aria-label', text);
   }
 
-  setValue(newText, direction = null, isInitial = false) {
+  setValue(newText, direction = null, isInstant = false) {
     if (newText === undefined || newText === null) return;
     const str = String(newText);
 
-    // Initial setup or string format length change requires rebuilding slot structure
-    if (isInitial || this.slots.length !== str.length || this.element.children.length === 0) {
+    // Initial setup, instant update, or string format length change requires rebuilding slot structure
+    if (isInstant || this.slots.length !== str.length || this.element.children.length === 0) {
       this._buildSlots(str);
       this.currentValue = str;
       return;
@@ -106,14 +106,28 @@ class DigitRoller {
   }
 
   _rollSlot(slot, oldChar, newChar, direction) {
-    // Clean up any stale exit elements immediately
-    const existingExits = slot.querySelectorAll('.roll-unit-exit');
-    existingExits.forEach(el => el.remove());
+    // 1. Cancel any animations currently running on this slot
+    if (slot._animEnter) {
+      try { slot._animEnter.cancel(); } catch (e) {}
+      slot._animEnter = null;
+    }
+    if (slot._animExit) {
+      try { slot._animExit.cancel(); } catch (e) {}
+      slot._animExit = null;
+    }
 
-    const currentUnit = slot.querySelector('.roll-unit-active') || slot.querySelector('.roll-unit-enter') || slot.lastElementChild;
+    // 2. Remove all exiting and stale units so slot has only the latest active unit
+    const units = Array.from(slot.children);
+    for (let u = 0; u < units.length; u++) {
+      if (units[u].classList.contains('roll-unit-exit') || u < units.length - 1) {
+        units[u].remove();
+      }
+    }
 
+    const currentUnit = slot.querySelector('.roll-unit-active') || slot.firstElementChild;
     if (currentUnit) {
       currentUnit.className = `roll-unit roll-unit-exit roll-dir-${direction}`;
+      currentUnit.style.position = 'absolute';
     }
 
     const newUnit = document.createElement('span');
@@ -126,17 +140,23 @@ class DigitRoller {
     const settle = () => {
       if (settled) return;
       settled = true;
+      slot._animEnter = null;
+      slot._animExit = null;
       if (currentUnit && currentUnit.parentNode === slot) {
         currentUnit.remove();
       }
+      // Ensure only newUnit remains in slot
+      Array.from(slot.children).forEach(child => {
+        if (child !== newUnit) child.remove();
+      });
       if (newUnit.parentNode === slot) {
         newUnit.className = 'roll-unit roll-unit-active';
+        newUnit.style.position = 'relative';
         newUnit.style.transform = '';
         newUnit.style.opacity = '';
       }
     };
 
-    // Prioritize Web Animations API (runs smoothly in all modern WebKit/Blink/Gecko)
     if (typeof newUnit.animate === 'function') {
       const isDown = (direction === 'down');
       const enterKeyframes = isDown
@@ -167,18 +187,17 @@ class DigitRoller {
 
       try {
         if (currentUnit) {
-          currentUnit.animate(exitKeyframes, animOptions);
+          slot._animExit = currentUnit.animate(exitKeyframes, animOptions);
         }
-        const enterAnim = newUnit.animate(enterKeyframes, animOptions);
-        enterAnim.onfinish = settle;
+        slot._animEnter = newUnit.animate(enterKeyframes, animOptions);
+        slot._animEnter.onfinish = settle;
       } catch (e) {
-        newUnit.addEventListener('animationend', settle, { once: true });
+        settle();
       }
     } else {
-      newUnit.addEventListener('animationend', settle, { once: true });
+      settle();
     }
 
-    // Safety fallback timeout
     setTimeout(settle, animDuration + 40);
   }
 }
