@@ -1,9 +1,7 @@
 #!/bin/bash
-# ────────────────────────────────────────────────────────
 # Pomus - Uninstall Script
 # Removes launcher, .desktop entry, and icons from
 # ~/.local/{bin,share/applications,share/icons/hicolor}
-# ────────────────────────────────────────────────────────
 set -euo pipefail
 
 APP_NAME="pomus"

@@ -250,13 +250,18 @@ class PomodoroTimer {
     this.setMode(nextMode, autoStart);
   }
 
-  updateSettings(newSettings, preserveTimeLeft = false) {
+  updateSettings(newSettings, preserveTimeLeft = true) {
+    const oldDuration = this.getDurationForMode(this.mode);
     this.settings = { ...this.settings, ...newSettings };
-    // If currently stopped, refresh total duration
+    const newDuration = this.getDurationForMode(this.mode);
+    this.totalDuration = newDuration;
+
     if (!this.isRunning) {
-      this.totalDuration = this.getDurationForMode(this.mode);
-      if (!preserveTimeLeft || this.timeLeft > this.totalDuration || this.timeLeft <= 0) {
-        this.timeLeft = this.totalDuration;
+      // Only reset timeLeft if mode duration actually changed
+      if (oldDuration !== newDuration) {
+        if (!preserveTimeLeft || this.timeLeft > this.totalDuration || this.timeLeft === oldDuration) {
+          this.timeLeft = this.totalDuration;
+        }
       }
       this._dispatchTick(true);
       this._persistState(true);

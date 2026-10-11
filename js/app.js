@@ -137,16 +137,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!newTaskId || newTaskId === activeTaskId) return;
 
     if (settings.individualTimers) {
-      // 1. Pausa e salva o estado do timer da tarefa anterior
+      // 1. Pause and save timer state of previous task
       if (activeTaskId) {
         saveCurrentTimerToActiveTask(true);
       }
 
-      // 2. Define a nova tarefa ativa
+      // 2. Set new active task
       activeTaskId = newTaskId;
       Storage.setActiveTaskId(activeTaskId);
 
-      // 3. Restaura ou inicializa o timer da nova tarefa
+      // 3. Restore or initialize timer for new task
       const targetTask = tasks.find(t => t.id === newTaskId);
       if (targetTask) {
         if (targetTask.timerState) {
@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Apply Initial Theme
   applyTheme(settings.theme || 'sunset');
 
-  // Salvar estado do timer e sincronizar com o disco ao fechar janela ou trocar visibilidade
+  // Persist timer state to disk on window unload or hidden visibility
   window.persistAll = function() {
     if (timer) {
       if (settings.individualTimers && activeTaskId) {
@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.visibilityState === 'hidden') window.persistAll();
   });
 
-  // Hidratação garantida a partir do disco na inicialização
+  // Hydrate data from disk on startup
   Storage.loadFromDisk().then(hydrated => {
     if (hydrated) {
       settings = Storage.getSettings();
@@ -248,10 +248,10 @@ document.addEventListener('DOMContentLoaded', () => {
       updateActiveTaskBanner();
       updateTaskEstimate();
     } else {
-      // Primeira execução de todas: se disco e localStorage estiverem vazios, cria tarefa exemplo
+      // First execution fallback
       if (tasks.length === 0 && !localStorage.getItem('pomus_tasks')) {
         const initialTasks = [
-          { id: 'task_ia', title: 'IA', actCycles: 7, estCycles: 10, completed: false, createdAt: Date.now() }
+          { id: 'task_ia', title: 'AI Research', actCycles: 7, estCycles: 10, completed: false, createdAt: Date.now() }
         ];
         tasks = initialTasks;
         activeTaskId = 'task_ia';
@@ -273,10 +273,30 @@ document.addEventListener('DOMContentLoaded', () => {
     AudioPlayer.playButtonClick();
   }
 
-  // --------------------------------------------------------------------------
   // TIMER INITIALIZATION & ROLLING DIGITS
-  // --------------------------------------------------------------------------
   let lastTimeLeft = null;
+  let pomoRunStartLeft = null;
+
+  function recordFocusInterval(elapsedSec, isNaturalCompletion = false) {
+    if (elapsedSec <= 0 || !activeTaskId) return;
+    const activeTask = tasks.find(t => t.id === activeTaskId);
+    if (!activeTask) return;
+
+    activeTask.focusedSeconds = (activeTask.focusedSeconds || 0) + elapsedSec;
+    activeTask.focusedMinutes = Math.round(activeTask.focusedSeconds / 60);
+
+    const elapsedMins = Math.floor(elapsedSec / 60);
+    if (elapsedMins >= 1 && !isNaturalCompletion) {
+      Storage.logCompletedSession(elapsedMins, activeTask.title);
+    }
+
+    Storage.saveTasks(tasks);
+    renderTasks();
+    if (window.Calendar && typeof Calendar.render === 'function') {
+      Calendar.render();
+    }
+  }
+
   if (timerRoller) {
     timerRoller.setEnabled(settings.rollingAnimation !== false);
   }
@@ -314,6 +334,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const modeLabel = timer.mode === TimerMode.POMODORO ? 'Focus' : 'Break';
       document.title = `(${formatted}) ${modeLabel} | Popomus`;
 
+      // Live update Calendar timer pill if active
+      if (window.Calendar && typeof Calendar.updateTimerPill === 'function') {
+        const activeTask = tasks.find(t => t.id === activeTaskId);
+        const activeTitle = activeTask ? activeTask.title : '';
+        const modeLabelPill = timer.mode === TimerMode.POMODORO ? 'Pomodoro' : (timer.mode === TimerMode.SHORT_BREAK ? 'Short Break' : 'Long Break');
+        Calendar.updateTimerPill(modeLabelPill, formatted, activeTitle, timer.isRunning);
+      }
+
       // Task timer chip updates strictly upon pause, reset or task switch per user request
     },
     onStateChange: (mode, isRunning, cycleCount) => {
@@ -337,24 +365,45 @@ document.addEventListener('DOMContentLoaded', () => {
         if (iconTimerPlay) iconTimerPlay.style.display = 'none';
         if (iconTimerPause) iconTimerPause.style.display = 'block';
         body.classList.add('timer-running');
+        if (mode === TimerMode.POMODORO) {
+          pomoRunStartLeft = timer.timeLeft;
+        }
       } else {
         btnTimerMain.classList.remove('running');
         btnTimerMainText.textContent = 'START';
         if (iconTimerPlay) iconTimerPlay.style.display = 'block';
         if (iconTimerPause) iconTimerPause.style.display = 'none';
         body.classList.remove('timer-running');
+
+        // Track focus time when timer is paused if mode is POMODORO
+        if (mode === TimerMode.POMODORO && pomoRunStartLeft !== null) {
+          const elapsedSec = Math.max(0, pomoRunStartLeft - timer.timeLeft);
+          pomoRunStartLeft = null;
+          if (elapsedSec > 0 && settings.taskTimeTrackingMode === 'on_pause_or_complete') {
+            recordFocusInterval(elapsedSec, false);
+          }
+        }
+
         if (settings.individualTimers && activeTaskId) {
           saveCurrentTimerToActiveTask(false);
           renderTasks();
         }
       }
 
+      // Update Calendar banner on state change
+      if (window.Calendar && typeof Calendar.updateTimerPill === 'function') {
+        const activeTask = tasks.find(t => t.id === activeTaskId);
+        const activeTitle = activeTask ? activeTask.title : '';
+        const mins = Math.floor(timer.timeLeft / 60).toString().padStart(2, '0');
+        const secs = (timer.timeLeft % 60).toString().padStart(2, '0');
+        Calendar.updateTimerPill(modeNames[mode] || 'Pomodoro', `${mins}:${secs}`, activeTitle, isRunning);
+      }
+
       updateCycleDisplay(cycleCount);
     },
     onComplete: (finishedMode) => {
       if (finishedMode === TimerMode.POMODORO) {
-        // Confetti celebration removed per user request
-
+        pomoRunStartLeft = null;
         const activeTask = tasks.find(t => t.id === activeTaskId);
         const taskTitle = activeTask ? activeTask.title : 'General Focus';
         Storage.logCompletedSession(settings.workTime, taskTitle);
@@ -362,9 +411,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeTask) {
           activeTask.actCycles = (activeTask.actCycles || 0) + 1;
           delete activeTask.manuallyUnchecked;
-          // Marcar como completa assim que atingir o objetivo, permitindo que supere
+
+          if (settings.taskTimeTrackingMode === 'on_pause_or_complete') {
+            const sessionSecs = (settings.workTime || 25) * 60;
+            activeTask.focusedSeconds = (activeTask.focusedSeconds || 0) + sessionSecs;
+            activeTask.focusedMinutes = Math.round(activeTask.focusedSeconds / 60);
+          }
+
+          // Auto-mark completed when target cycles reached
           if (activeTask.actCycles >= (activeTask.estCycles || 1)) {
             activeTask.completed = true;
+            activeTask.completedAt = activeTask.completedAt || Date.now();
+            activeTask.completedDate = Storage._formatLocalDate(new Date(activeTask.completedAt));
+            Storage.recordCompletedTask(activeTask);
+            if (window.Calendar && typeof Calendar.render === 'function') {
+              Calendar.render();
+            }
           }
           if (settings.individualTimers && activeTask.timerState) {
             activeTask.timerState.cycleCount = timer.cycleCount;
@@ -376,6 +438,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (statsDialog.open) {
           StatsChart.renderChart();
+          if (window.Calendar && typeof Calendar.render === 'function') {
+            Calendar.render();
+          }
         }
       }
     }
@@ -400,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Initial trigger to paint timer (restaura estado salvo ou reinicia)
+  // Initial trigger to paint timer
   let initialRestored = false;
   if (settings.individualTimers && activeTaskId) {
     const activeTask = tasks.find(t => t.id === activeTaskId);
@@ -411,16 +476,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!initialRestored) {
     const initialTimerState = Storage.getTimerState();
     if (initialTimerState && timer.restoreState(initialTimerState)) {
-      // Estado restaurado com sucesso do disco / localStorage
+      // Restored from disk or localStorage
     } else {
       timer.reset();
     }
   }
   updateCycleDisplay(timer.cycleCount);
 
-  // --------------------------------------------------------------------------
   // TIMER CONTROLS & SOUNDS
-  // --------------------------------------------------------------------------
   // Start/Pause is the ONLY button with tactile sound feedback per user request
   btnTimerMain.addEventListener('click', () => {
     playClick();
@@ -481,7 +544,9 @@ document.addEventListener('DOMContentLoaded', () => {
     syncVolumeUI(settings.soundVolume);
     AudioPlayer.setMuted(soundMuted);
     Storage.saveSettings(settings);
-    timer.updateSettings(settings);
+    if (timer) {
+      timer.settings.soundVolume = settings.soundVolume;
+    }
   });
 
   // Volume slider in settings modal
@@ -501,13 +566,13 @@ document.addEventListener('DOMContentLoaded', () => {
         iconSoundOff.style.display = 'none';
       }
       Storage.saveSettings(settings);
-      if (timer) timer.updateSettings(settings);
+      if (timer) {
+        timer.settings.soundVolume = settings.soundVolume;
+      }
     });
   }
 
-  // --------------------------------------------------------------------------
   // FULLSCREEN HANDLER
-  // --------------------------------------------------------------------------
   function toggleFullscreen() {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -525,9 +590,7 @@ document.addEventListener('DOMContentLoaded', () => {
     iconFullscreenExit.style.display = isFull ? 'block' : 'none';
   });
 
-  // --------------------------------------------------------------------------
   // THEMES & COLOR SWITCHING (Inspirations Palettes)
-  // --------------------------------------------------------------------------
   function applyTheme(themeKey, customColors = null) {
     settings.theme = themeKey;
     const root = document.documentElement;
@@ -576,9 +639,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --------------------------------------------------------------------------
   // TASKS MANAGEMENT: Drag & Drop + Active Task Highlight + Expandable Edit Drawer
-  // --------------------------------------------------------------------------
   function renderTasks() {
     tasksList.innerHTML = '';
 
@@ -597,9 +658,12 @@ document.addEventListener('DOMContentLoaded', () => {
     tasks.forEach(task => {
       const act = task.actCycles || 0;
       const est = Math.max(1, task.estCycles || 1);
-      // Marca automaticamente como completa ao atingir o objetivo
+      // Auto-mark completed when target cycles reached
       if (act >= est && !task.completed && !task.manuallyUnchecked) {
         task.completed = true;
+        task.completedAt = task.completedAt || Date.now();
+        task.completedDate = Storage._formatLocalDate(new Date(task.completedAt));
+        Storage.recordCompletedTask(task);
         tasksAutoCompleted = true;
       }
       const isSelected = task.id === activeTaskId;
@@ -631,6 +695,16 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
 
+      let timeSpentHtml = '';
+      const totalSecs = task.focusedSeconds || ((task.focusedMinutes || 0) * 60);
+      if (totalSecs > 0) {
+        const m = Math.round(totalSecs / 60);
+        const h = Math.floor(m / 60);
+        const remM = m % 60;
+        const timeFormatted = h > 0 ? (remM > 0 ? `${h}h ${remM}m` : `${h}h`) : `${m}m`;
+        timeSpentHtml = `<span class="task-focused-time-chip" title="Accumulated focus time on this task">${timeFormatted}</span>`;
+      }
+
       const taskEl = document.createElement('div');
       taskEl.className = `task-item ${isSelected ? 'active-focus' : ''} ${isCompleted ? 'completed' : ''} ${isEditing ? 'is-editing' : ''}`;
       taskEl.dataset.id = task.id;
@@ -649,6 +723,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
 
         <div class="task-item-right">
+          ${timeSpentHtml}
           ${timerChipHtml}
           <span class="task-pomos-counter" data-action="select">${act} / ${est}</span>
           <button class="task-card-menu-btn ${isEditing ? 'active' : ''}" data-action="menu" aria-label="${isEditing ? 'Close options' : 'Task options'}">
@@ -769,6 +844,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (tasksAutoCompleted) {
       Storage.saveTasks(tasks);
+      if (window.Calendar && typeof Calendar.render === 'function') {
+        Calendar.render();
+      }
     }
 
     updateActiveTaskBanner();
@@ -905,6 +983,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnClearCompletedTasks.addEventListener('click', () => {
+    // Preserve completed tasks in all-time history before clearing active list
+    tasks.forEach(t => {
+      if (t.completed) {
+        t.completedAt = t.completedAt || Date.now();
+        t.completedDate = t.completedDate || Storage._formatLocalDate(new Date(t.completedAt));
+        Storage.recordCompletedTask(t);
+      }
+    });
     const activeWasDeleted = tasks.some(t => t.id === activeTaskId && t.completed);
     tasks = tasks.filter(t => !t.completed);
     if (activeWasDeleted || !tasks.some(t => t.id === activeTaskId)) {
@@ -1017,6 +1103,12 @@ document.addEventListener('DOMContentLoaded', () => {
         task.estCycles = Math.max(1, isNaN(parsedEst) ? 1 : parsedEst);
         if (task.actCycles >= task.estCycles && !task.completed) {
           task.completed = true;
+          task.completedAt = task.completedAt || Date.now();
+          task.completedDate = Storage._formatLocalDate(new Date(task.completedAt));
+          Storage.recordCompletedTask(task);
+          if (window.Calendar && typeof Calendar.render === 'function') {
+            Calendar.render();
+          }
         }
         editingTaskId = null;
         Storage.saveTasks(tasks);
@@ -1041,9 +1133,19 @@ document.addEventListener('DOMContentLoaded', () => {
       e.stopPropagation();
       task.completed = !task.completed;
       task.manuallyUnchecked = !task.completed;
+      if (task.completed) {
+        task.completedAt = Date.now();
+        task.completedDate = Storage._formatLocalDate(new Date(task.completedAt));
+        Storage.recordCompletedTask(task);
+      } else {
+        Storage.removeCompletedTaskFromHistory(task.id);
+      }
       Storage.saveTasks(tasks);
       updateTaskEstimate();
       renderTasks();
+      if (window.Calendar && typeof Calendar.render === 'function') {
+        Calendar.render();
+      }
     } else if (action === 'menu') {
       e.stopPropagation();
       editingTaskId = (editingTaskId === taskId) ? null : taskId;
@@ -1070,9 +1172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --------------------------------------------------------------------------
   // MODALS & DIALOG MANAGEMENT
-  // --------------------------------------------------------------------------
   btnSettings.addEventListener('click', () => {
     inputWorkTime.value = settings.workTime;
     inputShortBreak.value = settings.shortBreakTime;
@@ -1082,6 +1182,10 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAutoPomos.checked = settings.autoStartPomodoros;
     if (toggleIndividualTimers) {
       toggleIndividualTimers.checked = !!settings.individualTimers;
+    }
+    const selectTaskTimeTracking = document.getElementById('selectTaskTimeTracking');
+    if (selectTaskTimeTracking) {
+      selectTaskTimeTracking.value = settings.taskTimeTrackingMode || 'on_complete';
     }
     selectAlarmSound.value = settings.alarmSound;
     toggleTickSound.checked = !!settings.tickSound;
@@ -1137,6 +1241,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const volVal = Math.min(1, Math.max(0, volPct / 100));
     const individualVal = toggleIndividualTimers ? toggleIndividualTimers.checked : false;
     const individualChanged = (settings.individualTimers !== individualVal);
+    const selectTaskTimeTracking = document.getElementById('selectTaskTimeTracking');
+    const taskTrackingModeVal = selectTaskTimeTracking ? selectTaskTimeTracking.value : (settings.taskTimeTrackingMode || 'on_complete');
 
     settings = {
       ...settings,
@@ -1147,6 +1253,7 @@ document.addEventListener('DOMContentLoaded', () => {
       autoStartBreaks: toggleAutoBreaks.checked,
       autoStartPomodoros: toggleAutoPomos.checked,
       individualTimers: individualVal,
+      taskTimeTrackingMode: taskTrackingModeVal,
       soundVolume: volVal,
       alarmSound: selectAlarmSound.value,
       tickSound: toggleTickSound.checked,
@@ -1227,7 +1334,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Stats Modal
   btnStats.addEventListener('click', () => {
     statsDialog.showModal();
-    StatsChart.renderChart(7);
+    if (typeof switchStatsModalTab === 'function') {
+      switchStatsModalTab('stats');
+    } else {
+      StatsChart.renderChart(7);
+    }
   });
 
   btnCloseStats.addEventListener('click', () => {
@@ -1317,9 +1428,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // KEYBOARD SHORTCUTS (Active in background without visual hints)
-  // --------------------------------------------------------------------------
   window.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       return;
@@ -1340,9 +1449,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --------------------------------------------------------------------------
   // CANVAS CONFETTI
-  // --------------------------------------------------------------------------
   function launchConfetti() {
     const canvas = document.getElementById('confettiCanvas');
     if (!canvas) return;
@@ -1415,6 +1522,60 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial render
   renderTasks();
   setInterval(updateTaskEstimate, 30000);
+
+  // Stats modal tab switcher (Statistics & Charts vs Task Calendar)
+  const modalTabStats = document.getElementById('modalTabStats');
+  const modalTabCalendar = document.getElementById('modalTabCalendar');
+  const statsPanelActivity = document.getElementById('statsPanelActivity');
+  const statsPanelCalendar = document.getElementById('statsPanelCalendar');
+
+  function switchStatsModalTab(tabName) {
+    if (tabName === 'calendar') {
+      if (modalTabStats) {
+        modalTabStats.classList.remove('active');
+        modalTabStats.setAttribute('aria-selected', 'false');
+      }
+      if (modalTabCalendar) {
+        modalTabCalendar.classList.add('active');
+        modalTabCalendar.setAttribute('aria-selected', 'true');
+      }
+      if (statsPanelActivity) statsPanelActivity.style.display = 'none';
+      if (statsPanelCalendar) statsPanelCalendar.style.display = 'flex';
+      if (window.Calendar && typeof Calendar.render === 'function') {
+        Calendar.render();
+      }
+    } else {
+      if (modalTabCalendar) {
+        modalTabCalendar.classList.remove('active');
+        modalTabCalendar.setAttribute('aria-selected', 'false');
+      }
+      if (modalTabStats) {
+        modalTabStats.classList.add('active');
+        modalTabStats.setAttribute('aria-selected', 'true');
+      }
+      if (statsPanelCalendar) statsPanelCalendar.style.display = 'none';
+      if (statsPanelActivity) statsPanelActivity.style.display = 'flex';
+      const activePeriodBtn = document.querySelector('.period-btn.active');
+      const days = activePeriodBtn ? (parseInt(activePeriodBtn.dataset.days, 10) || 7) : 7;
+      if (window.StatsChart && typeof StatsChart.renderChart === 'function') {
+        StatsChart.renderChart(days);
+      }
+    }
+  }
+  window.switchStatsModalTab = switchStatsModalTab;
+  window.renderTasks = renderTasks;
+
+  if (modalTabStats) {
+    modalTabStats.addEventListener('click', () => switchStatsModalTab('stats'));
+  }
+  if (modalTabCalendar) {
+    modalTabCalendar.addEventListener('click', () => switchStatsModalTab('calendar'));
+  }
+
+  // Initialize Calendar Module
+  if (window.Calendar && typeof Calendar.init === 'function') {
+    Calendar.init();
+  }
 
   // Audio unlock gesture
   function unlockAudio() {

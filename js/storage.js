@@ -9,7 +9,8 @@ const STORAGE_KEYS = {
   TASKS: 'pomus_tasks',
   SESSIONS: 'pomus_sessions',
   ACTIVE_TASK: 'pomus_active_task',
-  TIMER_STATE: 'pomus_timer_state'
+  TIMER_STATE: 'pomus_timer_state',
+  COMPLETED_HISTORY: 'pomus_completed_history'
 };
 
 // Legacy keys migration helper
@@ -17,7 +18,8 @@ const LEGACY_KEYS = {
   SETTINGS: 'pomodoro_settings',
   TASKS: 'pomodoro_tasks',
   SESSIONS: 'pomodoro_sessions',
-  ACTIVE_TASK: 'pomodoro_active_task'
+  ACTIVE_TASK: 'pomodoro_active_task',
+  COMPLETED_HISTORY: 'pomodoro_completed_history'
 };
 
 const DEFAULT_SETTINGS = {
@@ -28,6 +30,7 @@ const DEFAULT_SETTINGS = {
   autoStartBreaks: false,
   autoStartPomodoros: false,
   individualTimers: false,
+  taskTimeTrackingMode: 'on_complete', // 'on_complete' (default) | 'on_pause_or_complete'
   alarmSound: 'bell',    // bell, zen, beep, marimba
   soundVolume: 0.8,
   tickSound: false,
@@ -122,7 +125,7 @@ const Storage = {
     } catch (e) {}
   },
 
-  // --- Settings ---
+  // Settings
   getSettings() {
     this._migrate();
     try {
@@ -143,7 +146,7 @@ const Storage = {
     }
   },
 
-  // --- Tasks ---
+  // Tasks
   getTasks() {
     this._migrate();
     try {
@@ -183,7 +186,187 @@ const Storage = {
     this.syncWithDisk(true);
   },
 
-  // --- Timer State Persistence ---
+  // Completed Tasks History (All Time Persistence)
+  getCompletedTasksHistory() {
+    this._migrate();
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.COMPLETED_HISTORY);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Error loading completed tasks history:', e);
+    }
+    return [];
+  },
+
+  saveCompletedTasksHistory(historyList) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.COMPLETED_HISTORY, JSON.stringify(historyList));
+      this.syncWithDisk(true);
+    } catch (e) {
+      console.error('Error saving completed tasks history:', e);
+    }
+  },
+
+  recordCompletedTask(task) {
+    if (!task || !task.id) return null;
+    const history = this.getCompletedTasksHistory();
+    const now = Date.now();
+    const completedAt = task.completedAt || now;
+    const d = new Date(completedAt);
+    const dateStr = task.completedDate || this._formatLocalDate(d);
+    const timeFormatted = task.completedTimeFormatted || d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const settings = this.getSettings();
+    const act = typeof task.actCycles === 'number' ? task.actCycles : (task.estCycles || 1);
+    const est = Math.max(1, task.estCycles || 1);
+    const totalMinutes = act * (settings.workTime || 25);
+
+    const record = {
+      id: task.id,
+      title: (task.title || 'Untitled Task').trim(),
+      actCycles: act,
+      estCycles: est,
+      completed: true,
+      completedAt: completedAt,
+      completedDate: dateStr,
+      completedTimeFormatted: timeFormatted,
+      createdAt: task.createdAt || completedAt,
+      totalMinutes: totalMinutes
+    };
+
+    const existingIndex = history.findIndex(h => h.id === task.id);
+    if (existingIndex !== -1) {
+      history[existingIndex] = { ...history[existingIndex], ...record };
+    } else {
+      history.unshift(record);
+    }
+
+    this.saveCompletedTasksHistory(history);
+    return record;
+  },
+
+  removeCompletedTaskFromHistory(taskId) {
+    let history = this.getCompletedTasksHistory();
+    history = history.filter(h => h.id !== taskId);
+    this.saveCompletedTasksHistory(history);
+  },
+
+  getAllCompletedTasks() {
+    const history = this.getCompletedTasksHistory();
+    const activeTasks = this.getTasks();
+    const sessions = this.getSessions();
+    const settings = this.getSettings();
+    const map = new Map();
+
+    // 1. Aggregate recorded database sessions across all time
+    sessions.forEach(s => {
+      const title = (s.taskTitle && s.taskTitle.trim()) ? s.taskTitle.trim() : 'General Focus';
+      const date = s.date || (s.timestamp ? this._formatLocalDate(new Date(s.timestamp)) : '');
+      if (!date) return;
+      const key = `${date}___${title}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: 'sess_task_' + date + '_' + title.replace(/\s+/g, '_'),
+          title: title,
+          completedDate: date,
+          totalMinutes: 0,
+          actCycles: 0,
+          estCycles: 1,
+          completed: true,
+          completedAt: s.timestamp || Date.now(),
+          sessionTimes: [],
+          fromDatabase: true
+        });
+      }
+      const item = map.get(key);
+      item.totalMinutes += (s.durationMinutes || 0);
+      item.actCycles += 1;
+      if (s.timeFormatted && !item.sessionTimes.includes(s.timeFormatted)) {
+        item.sessionTimes.push(s.timeFormatted);
+      }
+      if (s.timestamp && s.timestamp > item.completedAt) {
+        item.completedAt = s.timestamp;
+      }
+    });
+
+    // 2. Merge with completed tasks history (completedHistory)
+    history.forEach(item => {
+      const date = item.completedDate || this._formatLocalDate(new Date(item.completedAt || Date.now()));
+      const title = (item.title || 'Untitled Task').trim();
+      const key = `${date}___${title}`;
+      if (map.has(key)) {
+        const existing = map.get(key);
+        existing.id = item.id;
+        existing.estCycles = Math.max(existing.estCycles || 1, item.estCycles || 1);
+        existing.actCycles = Math.max(existing.actCycles || 0, item.actCycles || 0);
+        existing.totalMinutes = Math.max(existing.totalMinutes || 0, item.totalMinutes || 0);
+        if (item.completedAt && item.completedAt > existing.completedAt) {
+          existing.completedAt = item.completedAt;
+        }
+      } else {
+        map.set(key, {
+          ...item,
+          completedDate: date,
+          completed: true
+        });
+      }
+    });
+
+    // 3. Merge with active tasks marked as completed
+    activeTasks.filter(t => t.completed).forEach(t => {
+      const completedAt = t.completedAt || t.createdAt || Date.now();
+      const d = new Date(completedAt);
+      const date = this._formatLocalDate(d);
+      const title = (t.title || 'Untitled Task').trim();
+      const key = `${date}___${title}`;
+      const act = typeof t.actCycles === 'number' ? t.actCycles : (t.estCycles || 1);
+      const est = Math.max(1, t.estCycles || 1);
+      const timeMins = (t.focusedMinutes && t.focusedMinutes > 0) ? t.focusedMinutes : (act * (settings.workTime || 25));
+
+      if (map.has(key)) {
+        const existing = map.get(key);
+        existing.id = t.id;
+        existing.actCycles = Math.max(existing.actCycles || 0, act);
+        existing.estCycles = Math.max(existing.estCycles || 1, est);
+        existing.totalMinutes = Math.max(existing.totalMinutes || 0, timeMins);
+      } else {
+        map.set(key, {
+          id: t.id,
+          title: title,
+          actCycles: act,
+          estCycles: est,
+          completed: true,
+          completedAt: completedAt,
+          completedDate: date,
+          createdAt: t.createdAt || completedAt,
+          totalMinutes: timeMins
+        });
+      }
+    });
+
+    // 4. Format friendly duration and sort descending by completion date
+    const list = Array.from(map.values()).map(item => {
+      const totalMins = Math.max(1, Math.round(item.totalMinutes || (item.actCycles * 25)));
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      const formattedTime = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${totalMins}m`;
+      const d = new Date(item.completedAt || Date.now());
+      return {
+        ...item,
+        totalMinutes: totalMins,
+        durationFormatted: formattedTime,
+        completedTimeFormatted: item.completedTimeFormatted || d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+    });
+
+    return list.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+  },
+
+  // Timer State Persistence
   getTimerState() {
     this._migrate();
     try {
@@ -213,7 +396,7 @@ const Storage = {
     } catch (e) {}
   },
 
-  // --- Focus Sessions Log ---
+  // Focus Sessions Log
   getSessions() {
     this._migrate();
     try {
@@ -417,7 +600,7 @@ const Storage = {
     this.syncWithDisk();
   },
 
-  // --- Disk Synchronization (Bridge with python app.py) ---
+  // Disk Synchronization (Bridge with python app.py)
   syncDebounceTimer: null,
   syncWithDisk(immediate = false) {
     if (!window.location.protocol.startsWith('http')) return;
@@ -434,6 +617,7 @@ const Storage = {
         sessions: this.getSessions(),
         activeTaskId: this.getActiveTaskId(),
         timerState: currentTimerState,
+        completedHistory: this.getAllCompletedTasks(),
         updatedAt: new Date().toISOString()
       };
 
@@ -494,6 +678,13 @@ const Storage = {
             localStorage.setItem(STORAGE_KEYS.TIMER_STATE, JSON.stringify(data.timerState));
             updated = true;
           }
+          if (Array.isArray(data.completedHistory)) {
+            localStorage.setItem(STORAGE_KEYS.COMPLETED_HISTORY, JSON.stringify(data.completedHistory));
+            updated = true;
+          } else if (Array.isArray(data.completedTasks)) {
+            localStorage.setItem(STORAGE_KEYS.COMPLETED_HISTORY, JSON.stringify(data.completedTasks));
+            updated = true;
+          }
           return updated;
         }
       }
@@ -503,7 +694,7 @@ const Storage = {
     return false;
   },
 
-  // --- Export & Import ---
+  // Export & Import
   exportData() {
     const payload = {
       app: 'Popomus',
@@ -513,7 +704,8 @@ const Storage = {
       tasks: this.getTasks(),
       sessions: this.getSessions(),
       activeTaskId: this.getActiveTaskId(),
-      timerState: this.getTimerState()
+      timerState: this.getTimerState(),
+      completedHistory: this.getAllCompletedTasks()
     };
     return JSON.stringify(payload, null, 2);
   },
@@ -527,6 +719,11 @@ const Storage = {
         if (Array.isArray(data.sessions)) localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(data.sessions));
         if (data.activeTaskId) localStorage.setItem(STORAGE_KEYS.ACTIVE_TASK, data.activeTaskId);
         if (data.timerState) localStorage.setItem(STORAGE_KEYS.TIMER_STATE, JSON.stringify(data.timerState));
+        if (Array.isArray(data.completedHistory)) {
+          localStorage.setItem(STORAGE_KEYS.COMPLETED_HISTORY, JSON.stringify(data.completedHistory));
+        } else if (Array.isArray(data.completedTasks)) {
+          localStorage.setItem(STORAGE_KEYS.COMPLETED_HISTORY, JSON.stringify(data.completedTasks));
+        }
         this.syncWithDisk();
         return true;
       }
@@ -536,3 +733,7 @@ const Storage = {
     return false;
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.Storage = Storage;
+}

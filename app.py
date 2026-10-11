@@ -46,7 +46,7 @@ ICON_PATH = os.path.join(ASSETS_DIR, "icon.png")
 ICON_SVG_PATH = os.path.join(ASSETS_DIR, "icon.svg")
 DATA_FILE = os.path.join(DIRECTORY, "pomus_data.json")
 
-# ─── XDG Data Directory ───────────────────────────────────────────────────────
+# XDG Data Directory
 XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
 XDG_POMUS_DIR = os.path.join(XDG_DATA_HOME, "pomus")
 XDG_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR")
@@ -259,7 +259,7 @@ def ensure_desktop_integration():
         print(f"[POMUS] Aviso na integração desktop: {e}")
 
 
-# ─── Notificações Nativas do Linux ────────────────────────────────────────────
+# Notificações Nativas do Linux
 _notify_initialized = False
 
 
@@ -310,7 +310,7 @@ def send_native_notification(title, body, icon_path=None):
     return False
 
 
-# ─── Reprodução de Áudio Nativo ───────────────────────────────────────────────
+# Reprodução de Áudio Nativo
 
 def play_sound_native(sound_name, volume=0.8):
     """Reproduz som nativo no Linux utilizando pw-play, paplay ou canberra."""
@@ -354,7 +354,7 @@ def play_sound_native(sound_name, volume=0.8):
                 continue
 
 
-# ─── Servidor HTTP Integrado ──────────────────────────────────────────────────
+# Servidor HTTP Integrado
 
 class PomusHTTPHandler(http.server.SimpleHTTPRequestHandler):
     """Servidor HTTP integrado com API de áudio, notificações e persistência em disco."""
@@ -504,7 +504,7 @@ def start_local_server(port):
     return server
 
 
-# ─── Bandeja do Sistema (System Tray / AppIndicator) ──────────────────────────
+# Bandeja do Sistema (System Tray / AppIndicator)
 
 _tray_indicator = None
 
@@ -633,7 +633,7 @@ def _tray_quit(Gtk):
     Gtk.main_quit()
 
 
-# ─── Janela Nativa GTK3 + WebKit2 ────────────────────────────────────────────
+# Janela Nativa GTK3 + WebKit2
 
 def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
     """
@@ -883,7 +883,7 @@ def launch_browser_app_mode(url):
     return True
 
 
-# ─── Comandos de Instalação/Desinstalação Integrados ─────────────────────────
+# Comandos de Instalação/Desinstalação Integrados
 
 def run_install():
     """Executa install.sh a partir do diretório do projeto."""
@@ -903,7 +903,7 @@ def run_uninstall():
     os.execv("/bin/bash", ["/bin/bash", script])
 
 
-# ─── Ponto de Entrada Principal ───────────────────────────────────────────────
+# Ponto de Entrada Principal
 
 def main():
     parser = argparse.ArgumentParser(description="Pomus - Foco e Produtividade")

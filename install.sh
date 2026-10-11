@@ -1,9 +1,7 @@
 #!/bin/bash
-# ────────────────────────────────────────────────────────
 # Pomus - Install Script (user-local, no sudo required)
 # Installs launcher, .desktop entry, and icons into
 # ~/.local/{bin,share/applications,share/icons/hicolor}
-# ────────────────────────────────────────────────────────
 set -euo pipefail
 
 APP_NAME="pomus"

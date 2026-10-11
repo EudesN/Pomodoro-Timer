@@ -25,3 +25,6 @@ tempCodeRunnerFile.py
 
 .DS_Store
 Thumbs.db
+
+# Configurações e regras locais de agentes
+.agents/
