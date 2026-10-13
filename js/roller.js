@@ -209,12 +209,25 @@ if (typeof window !== 'undefined') {
 /**
  * Rolling counter animation for stats numbers (count-up roll)
  */
-function animateRollingCounter(element, targetValue, duration = 550, suffix = '') {
+function animateRollingCounter(element, targetValue, duration = 380, suffix = '') {
   if (!element) return;
-  const start = 0;
   const end = typeof targetValue === 'number' ? targetValue : parseFloat(targetValue) || 0;
   const isFloat = end % 1 !== 0;
+
+  // Cancel any ongoing animation on this element to prevent overlapping rAF loops
+  if (element._rollingRaf) {
+    cancelAnimationFrame(element._rollingRaf);
+    element._rollingRaf = null;
+  }
+
+  if (end === 0) {
+    element.textContent = `0${suffix}`;
+    return;
+  }
+
+  const start = 0;
   const startTime = performance.now();
+  let lastText = '';
 
   function step(now) {
     const elapsed = now - startTime;
@@ -223,14 +236,19 @@ function animateRollingCounter(element, targetValue, duration = 550, suffix = ''
     const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
     const current = start + (end - start) * ease;
     const displayVal = isFloat ? current.toFixed(1) : Math.round(current);
-    element.textContent = `${displayVal}${suffix}`;
+    const nextText = `${displayVal}${suffix}`;
+    if (nextText !== lastText) {
+      lastText = nextText;
+      element.textContent = nextText;
+    }
 
     if (progress < 1) {
-      requestAnimationFrame(step);
+      element._rollingRaf = requestAnimationFrame(step);
     } else {
+      element._rollingRaf = null;
       element.textContent = `${isFloat ? end.toFixed(1) : end}${suffix}`;
     }
   }
 
-  requestAnimationFrame(step);
+  element._rollingRaf = requestAnimationFrame(step);
 }

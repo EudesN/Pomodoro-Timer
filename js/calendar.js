@@ -194,8 +194,10 @@ const Calendar = {
     // 4. Render Tasks for the Selected Day
     this.renderDayTasks(allCompleted);
 
-    // 5. Render All-Time Tasks List
-    this.renderAllTasksList(allCompleted);
+    // 5. Render All-Time Tasks List lazily only when that sub-tab is currently active
+    if (this.state.activeSubTab === 'all') {
+      this.renderAllTasksList(allCompleted);
+    }
 
     // 6. Update Active Timer Pill if running
     this.updateTimerPill();
@@ -209,15 +211,29 @@ const Calendar = {
     const count = allCompleted.length;
     const totalPomos = allCompleted.reduce((acc, t) => acc + (t.actCycles || 0), 0);
     const totalMinutes = allCompleted.reduce((acc, t) => acc + (t.totalMinutes || ((t.actCycles || 0) * 25)), 0);
-    const totalHours = (totalMinutes / 60).toFixed(1);
+    const totalHours = Number((totalMinutes / 60).toFixed(1));
 
     // Unique productive days
     const uniqueDays = new Set(allCompleted.map(t => t.completedDate).filter(Boolean));
+    const productiveDaysCount = uniqueDays.size;
 
-    if (el.statTotalCompleted) el.statTotalCompleted.textContent = count;
-    if (el.statTotalPomos) el.statTotalPomos.textContent = totalPomos;
-    if (el.statTotalHours) el.statTotalHours.textContent = `${totalHours}h`;
-    if (el.statProductiveDays) el.statProductiveDays.textContent = `${uniqueDays.size} d`;
+    const settings = typeof Storage !== 'undefined' && typeof Storage.getSettings === 'function'
+      ? Storage.getSettings()
+      : { rollingAnimation: true };
+    const useRoll = (typeof animateRollingCounter === 'function') && (settings.rollingAnimation !== false);
+
+    if (useRoll) {
+      if (el.statTotalCompleted) animateRollingCounter(el.statTotalCompleted, count, 380, '');
+      if (el.statTotalPomos) animateRollingCounter(el.statTotalPomos, totalPomos, 380, '');
+      if (el.statTotalHours) animateRollingCounter(el.statTotalHours, totalHours, 380, 'h');
+      if (el.statProductiveDays) animateRollingCounter(el.statProductiveDays, productiveDaysCount, 380, ' d');
+    } else {
+      if (el.statTotalCompleted) el.statTotalCompleted.textContent = count;
+      if (el.statTotalPomos) el.statTotalPomos.textContent = totalPomos;
+      if (el.statTotalHours) el.statTotalHours.textContent = `${totalHours}h`;
+      if (el.statProductiveDays) el.statProductiveDays.textContent = `${productiveDaysCount} d`;
+    }
+
     if (el.allTasksCountBadge) el.allTasksCountBadge.textContent = count;
   },
 

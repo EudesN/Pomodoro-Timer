@@ -209,88 +209,102 @@ const StatsChart = {
       });
     }
 
-    if (focusChartInstance) {
-      focusChartInstance.destroy();
-    }
-
     const timerFontFamily = "'Manrope', 'Plus Jakarta Sans', system-ui, sans-serif";
 
-    focusChartInstance = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: datasets
-      },
-      plugins: [],
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: {
-          duration: 300,
-          easing: 'easeOutQuart'
-        },
-        interaction: {
-          mode: 'nearest',
-          axis: 'xy',
-          intersect: true
-        },
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            enabled: false // Native canvas tooltips disabled in favor of discreet custom popout
+    if (focusChartInstance) {
+      focusChartInstance.data.labels = labels;
+      focusChartInstance.data.datasets = datasets;
+      if (focusChartInstance.options && focusChartInstance.options.scales) {
+        if (focusChartInstance.options.scales.x && focusChartInstance.options.scales.x.ticks) {
+          focusChartInstance.options.scales.x.ticks.font.size = daysCount === 30 ? 9 : 11;
+          focusChartInstance.options.scales.x.ticks.maxRotation = daysCount === 30 ? 45 : 0;
+        }
+        if (focusChartInstance.options.scales.y) {
+          focusChartInstance.options.scales.y.suggestedMax = ySuggestedMax;
+          if (focusChartInstance.options.scales.y.ticks) {
+            focusChartInstance.options.scales.y.ticks.stepSize = yStepSize;
           }
+        }
+      }
+      focusChartInstance.update('none');
+    } else {
+      focusChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: datasets
         },
-        scales: {
-          x: {
-            stacked: true,
-            grid: {
+        plugins: [],
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            duration: 250,
+            easing: 'easeOutQuart'
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'xy',
+            intersect: true
+          },
+          plugins: {
+            legend: {
               display: false
             },
-            ticks: {
-              color: '#d5c3b1',
-              font: {
-                family: timerFontFamily,
-                size: daysCount === 30 ? 9 : 11,
-                weight: '600'
-              },
-              maxRotation: daysCount === 30 ? 45 : 0,
-              minRotation: 0
+            tooltip: {
+              enabled: false // Native canvas tooltips disabled in favor of discreet custom popout
             }
           },
-          y: {
-            stacked: true,
-            beginAtZero: true,
-            suggestedMax: ySuggestedMax,
-            grid: {
-              color: 'rgba(250, 236, 201, 0.08)',
-              drawBorder: false
-            },
-            ticks: {
-              color: '#9c8a7e',
-              font: {
-                family: timerFontFamily,
-                size: 11,
-                weight: '600'
+          scales: {
+            x: {
+              stacked: true,
+              grid: {
+                display: false
               },
-              stepSize: yStepSize,
-              callback: function(value) {
-                if (value === 0) return '0';
-                if (value < 1) return Math.round(value * 60) + 'm';
-                return value + 'h';
+              ticks: {
+                color: '#d5c3b1',
+                font: {
+                  family: timerFontFamily,
+                  size: daysCount === 30 ? 9 : 11,
+                  weight: '600'
+                },
+                maxRotation: daysCount === 30 ? 45 : 0,
+                minRotation: 0
+              }
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              suggestedMax: ySuggestedMax,
+              grid: {
+                color: 'rgba(250, 236, 201, 0.08)',
+                drawBorder: false
+              },
+              ticks: {
+                color: '#9c8a7e',
+                font: {
+                  family: timerFontFamily,
+                  size: 11,
+                  weight: '600'
+                },
+                stepSize: yStepSize,
+                callback: function(value) {
+                  if (value === 0) return '0';
+                  if (value < 1) return Math.round(value * 60) + 'm';
+                  return value + 'h';
+                }
               }
             }
           }
         }
-      }
-    });
+      });
+    }
 
     window.focusChartInstance = focusChartInstance;
     this.setupPopoutListeners(canvas);
 
     this.renderDailyBreakdown(dailyData, taskColorMap);
-    this.updateMetrics(daysCount);
+    this.updateMetrics(daysCount, dailyData);
     this.renderSessionLog();
   },
 
@@ -350,21 +364,25 @@ const StatsChart = {
     `;
   },
 
-  updateMetrics(daysCount) {
-    const summary = Storage.getMetricsSummary(daysCount);
-    const settings = Storage.getSettings();
-    const useRoll = (typeof animateRollingCounter === 'function') && (settings.rollingAnimation !== false);
-
+  updateMetrics(daysCount, dailyData = null) {
     const totalHoursEl = document.getElementById('statTotalHours');
     const avgHoursEl = document.getElementById('statAvgHours');
     const streakEl = document.getElementById('statStreak');
     const totalPomosEl = document.getElementById('statTotalPomos');
 
+    if (!totalHoursEl && !avgHoursEl && !streakEl && !totalPomosEl) {
+      return;
+    }
+
+    const summary = Storage.getMetricsSummary(daysCount, dailyData);
+    const settings = Storage.getSettings();
+    const useRoll = (typeof animateRollingCounter === 'function') && (settings.rollingAnimation !== false);
+
     if (useRoll) {
-      if (totalHoursEl) animateRollingCounter(totalHoursEl, summary.totalHours, 550, 'h');
-      if (avgHoursEl) animateRollingCounter(avgHoursEl, summary.dailyAverageHours, 550, 'h');
-      if (streakEl) animateRollingCounter(streakEl, summary.streak, 550, summary.streak === 1 ? ' day' : ' days');
-      if (totalPomosEl) animateRollingCounter(totalPomosEl, summary.totalSessions, 550, '');
+      if (totalHoursEl) animateRollingCounter(totalHoursEl, summary.totalHours, 380, 'h');
+      if (avgHoursEl) animateRollingCounter(avgHoursEl, summary.dailyAverageHours, 380, 'h');
+      if (streakEl) animateRollingCounter(streakEl, summary.streak, 380, summary.streak === 1 ? ' day' : ' days');
+      if (totalPomosEl) animateRollingCounter(totalPomosEl, summary.totalSessions, 380, '');
     } else {
       if (totalHoursEl) totalHoursEl.textContent = `${summary.totalHours}h`;
       if (avgHoursEl) avgHoursEl.textContent = `${summary.dailyAverageHours}h`;
@@ -417,6 +435,9 @@ const StatsChart = {
     return div.innerHTML;
   },
 
+  _activeBarTargetKey: null,
+  _popoutRaf: null,
+
   /**
    * Set up mouse and touch listeners on chart canvas for the discreet bar popout
    */
@@ -424,22 +445,34 @@ const StatsChart = {
     if (!canvas || canvas._hasPopoutListeners) return;
     canvas._hasPopoutListeners = true;
 
+    let latestEvent = null;
+
     canvas.addEventListener('mousemove', (e) => {
-      if (!focusChartInstance) return;
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const target = this.getBarAtCoordinates(focusChartInstance, mouseX, mouseY);
-      if (target) {
-        this.showPopout(focusChartInstance, target);
-        canvas.style.cursor = 'pointer';
-      } else {
-        this.hidePopout();
-        canvas.style.cursor = 'default';
-      }
-    });
+      latestEvent = e;
+      if (this._popoutRaf) return;
+      this._popoutRaf = requestAnimationFrame(() => {
+        this._popoutRaf = null;
+        if (!focusChartInstance || !latestEvent) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = latestEvent.clientX - rect.left;
+        const mouseY = latestEvent.clientY - rect.top;
+        const target = this.getBarAtCoordinates(focusChartInstance, mouseX, mouseY);
+        if (target) {
+          this.showPopout(focusChartInstance, target);
+          canvas.style.cursor = 'pointer';
+        } else {
+          this.hidePopout();
+          canvas.style.cursor = 'default';
+        }
+      });
+    }, { passive: true });
 
     canvas.addEventListener('mouseleave', () => {
+      if (this._popoutRaf) {
+        cancelAnimationFrame(this._popoutRaf);
+        this._popoutRaf = null;
+      }
+      latestEvent = null;
       this.hidePopout();
       canvas.style.cursor = 'default';
     });
@@ -541,6 +574,13 @@ const StatsChart = {
    * Display the discreet popout near the hovered sub-bar showing which task that time belongs to
    */
   showPopout(chart, target) {
+    const targetKey = `${target.datasetIndex}_${target.dataIndex}`;
+    // If the mouse is still hovering over the exact same sub-bar, avoid layout recalculations and DOM rebuilds
+    if (this._activeBarTargetKey === targetKey) {
+      return;
+    }
+    this._activeBarTargetKey = targetKey;
+
     let popoutEl = document.getElementById('chartBarPopout');
     const wrapper = document.querySelector('.chart-canvas-wrapper');
     if (!wrapper) return;
@@ -626,8 +666,9 @@ const StatsChart = {
    * Hide the popout smoothly
    */
   hidePopout() {
+    this._activeBarTargetKey = null;
     const popoutEl = document.getElementById('chartBarPopout');
-    if (popoutEl) {
+    if (popoutEl && popoutEl.classList.contains('visible')) {
       popoutEl.classList.remove('visible');
     }
   }

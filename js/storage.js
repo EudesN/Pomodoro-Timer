@@ -396,12 +396,18 @@ const Storage = {
     } catch (e) {}
   },
 
-  // Focus Sessions Log
+  // Focus Sessions Log (with in-memory cache to prevent redundant JSON.parse)
+  _sessionsCache: null,
+
   getSessions() {
+    if (this._sessionsCache !== null) {
+      return this._sessionsCache;
+    }
     this._migrate();
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SESSIONS);
-      return data ? JSON.parse(data) : [];
+      this._sessionsCache = data ? JSON.parse(data) : [];
+      return this._sessionsCache;
     } catch (e) {
       console.error('Error loading sessions:', e);
       return [];
@@ -409,8 +415,9 @@ const Storage = {
   },
 
   saveSessions(sessions) {
+    this._sessionsCache = Array.isArray(sessions) ? sessions : [];
     try {
-      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this._sessionsCache));
       this.syncWithDisk(true);
     } catch (e) {
       console.error('Error saving sessions:', e);
@@ -516,8 +523,8 @@ const Storage = {
     return result;
   },
 
-  getMetricsSummary(daysCount = 7) {
-    const dailyData = this.getDailyFocusData(daysCount);
+  getMetricsSummary(daysCount = 7, providedDailyData = null) {
+    const dailyData = providedDailyData || this.getDailyFocusData(daysCount);
     const sessions = this.getSessions();
 
     const totalMinutes = dailyData.reduce((acc, curr) => acc + curr.minutes, 0);
@@ -526,7 +533,7 @@ const Storage = {
     const dailyAverageHours = Number((totalHours / daysCount).toFixed(1));
 
     let streak = 0;
-    const allSessions = [...sessions];
+    const allSessions = sessions;
     const uniqueDaysWithFocus = new Set(allSessions.filter(s => s.durationMinutes > 0).map(s => {
       return s.date || (s.timestamp ? this._formatLocalDate(new Date(s.timestamp)) : '');
     }));
@@ -539,7 +546,7 @@ const Storage = {
     }
 
     while (true) {
-      const dStr = checkDate.toISOString().split('T')[0];
+      const dStr = this._formatLocalDate(checkDate);
       if (uniqueDaysWithFocus.has(dStr)) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
@@ -596,6 +603,7 @@ const Storage = {
   },
 
   clearHistory() {
+    this._sessionsCache = [];
     localStorage.removeItem(STORAGE_KEYS.SESSIONS);
     this.syncWithDisk();
   },
@@ -664,6 +672,7 @@ const Storage = {
           }
           if (Array.isArray(data.sessions)) {
             localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(data.sessions));
+            this._sessionsCache = data.sessions;
             updated = true;
           }
           if (data.activeTaskId !== undefined) {
@@ -716,7 +725,10 @@ const Storage = {
       if (data && typeof data === 'object') {
         if (data.settings) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));
         if (Array.isArray(data.tasks)) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(data.tasks));
-        if (Array.isArray(data.sessions)) localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(data.sessions));
+        if (Array.isArray(data.sessions)) {
+          localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(data.sessions));
+          this._sessionsCache = data.sessions;
+        }
         if (data.activeTaskId) localStorage.setItem(STORAGE_KEYS.ACTIVE_TASK, data.activeTaskId);
         if (data.timerState) localStorage.setItem(STORAGE_KEYS.TIMER_STATE, JSON.stringify(data.timerState));
         if (Array.isArray(data.completedHistory)) {

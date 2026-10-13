@@ -1961,6 +1961,8 @@ dialog#statsDialog {
 
 #statsDialog .cal-stat-value {
   font-family: var(--font-timer);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
   font-size: 1.35rem;
   font-weight: 800;
   color: #1a1b29;
@@ -2569,9 +2571,8 @@ dialog#statsDialog {
   white-space: nowrap;
   width: max-content;
   transform: translate(-50%, -100%) scale(0.95);
-  transition: opacity 0.15s cubic-bezier(0.2, 0, 0, 1),
-              transform 0.15s cubic-bezier(0.2, 0, 0, 1);
-  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.28));
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  will-change: transform, opacity;
 }
 
 .chart-bar-popout.visible {
@@ -2588,10 +2589,8 @@ dialog#statsDialog {
 }
 
 .chart-popout-content {
-  background: rgba(26, 29, 36, 0.95);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #1b1e26;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 0.55rem;
   padding: 0.45rem 0.75rem;
   display: flex;
@@ -2599,7 +2598,7 @@ dialog#statsDialog {
   gap: 0.25rem;
   width: max-content;
   max-width: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   white-space: nowrap;
 }
 
@@ -2685,12 +2684,12 @@ dialog#statsDialog {
 
 .pos-above .chart-popout-arrow {
   bottom: -5px;
-  border-top: 5px solid rgba(26, 29, 36, 0.95);
+  border-top: 5px solid #1b1e26;
 }
 
 .pos-below .chart-popout-arrow {
   top: -5px;
-  border-bottom: 5px solid rgba(26, 29, 36, 0.95);
+  border-bottom: 5px solid #1b1e26;
 }
 
 /* Tasks Dedicated Time Legend & Daily Breakdown (Below Chart) */
