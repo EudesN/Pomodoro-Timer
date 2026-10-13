@@ -1,13 +1,15 @@
-
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 
+# Ambientes virtuais
 .venv/
 venv/
 env/
 ENV/
 
+# Dados locais de runtime e sockets
 *.db
 *.sqlite
 *.sqlite3
@@ -15,6 +17,7 @@ pomodoro_data.db
 pomus_data.json
 *.sock
 
+# IDEs e editores
 .idea/
 .vscode/
 *.swp
@@ -23,8 +26,9 @@ pomus_data.json
 tempCodeRunnerFile.py
 *.code-workspace
 
+# Sistema operacional
 .DS_Store
 Thumbs.db
 
-# Configurações e regras locais de agentes
+# Configurações locais de agentes
 .agents/
