@@ -1,7 +1,6 @@
 /**
  * CHART & STATS VISUALIZATION MODULE - POPOMUS
- * Stacked sub-bars per task with dedicated times, matching timer typography.
- * Tooltips are completely disabled per user preference.
+ * Stacked sub-bars per task, with a custom hover popout instead of Chart.js tooltips.
  */
 
 var focusChartInstance = null;
@@ -32,83 +31,6 @@ function getTaskColor(index) {
     border: '#ffffff'
   };
 }
-
-// Custom plugin to draw time labels directly on and above bars (no tooltip needed)
-const barLabelsPlugin = {
-  id: 'barLabelsPlugin',
-  afterDatasetsDraw(chart) {
-    const ctx = chart.ctx;
-    const datasets = chart.data.datasets;
-    if (!datasets || datasets.length === 0) return;
-
-    const labelsCount = chart.data.labels.length;
-    const timerFont = "700 10px 'Manrope', 'Plus Jakarta Sans', system-ui, sans-serif";
-    const headerFont = "800 11px 'Manrope', 'Plus Jakarta Sans', system-ui, sans-serif";
-
-    // 1. Draw segment time labels inside each sub-bar (if height >= 14px)
-    datasets.forEach((ds, dsIndex) => {
-      const meta = chart.getDatasetMeta(dsIndex);
-      if (meta.hidden) return;
-
-      meta.data.forEach((bar, dataIdx) => {
-        const val = ds.data[dataIdx];
-        if (!val || val <= 0) return;
-
-        const totalMinutes = Math.round(val * 60);
-        const h = Math.floor(totalMinutes / 60);
-        const m = totalMinutes % 60;
-        const text = h > 0 ? (m > 0 ? `${h}h${m}m` : `${h}h`) : `${m}m`;
-
-        const barHeight = Math.abs(bar.base - bar.y);
-        if (barHeight >= 14) {
-          ctx.save();
-          ctx.font = timerFont;
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          const centerY = (bar.y + bar.base) / 2;
-          ctx.fillText(text, bar.x, centerY);
-          ctx.restore();
-        }
-      });
-    });
-
-    // 2. Draw total day focus time above the topmost sub-bar of each day
-    for (let i = 0; i < labelsCount; i++) {
-      let totalDayHours = 0;
-      let topY = Infinity;
-      let barX = null;
-
-      datasets.forEach((ds, dsIndex) => {
-        const val = ds.data[i] || 0;
-        totalDayHours += val;
-        const meta = chart.getDatasetMeta(dsIndex);
-        if (meta && meta.data[i] && val > 0) {
-          const bar = meta.data[i];
-          barX = bar.x;
-          if (bar.y < topY) {
-            topY = bar.y;
-          }
-        }
-      });
-
-      if (totalDayHours > 0 && barX !== null && isFinite(topY)) {
-        const totalMinutes = Math.round(totalDayHours * 60);
-        const h = Math.floor(totalMinutes / 60);
-        const m = totalMinutes % 60;
-        const totalText = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
-
-        ctx.save();
-        ctx.font = headerFont;
-        ctx.fillStyle = '#333333';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(totalText, barX, Math.max(topY - 4, 12));
-        ctx.restore();
-      }
-    }
-  }
-};
 
 const StatsChart = {
   /**
@@ -262,7 +184,7 @@ const StatsChart = {
                 display: false
               },
               ticks: {
-                color: '#d5c3b1',
+                color: '#6c757d',
                 font: {
                   family: timerFontFamily,
                   size: daysCount === 30 ? 9 : 11,
@@ -277,11 +199,11 @@ const StatsChart = {
               beginAtZero: true,
               suggestedMax: ySuggestedMax,
               grid: {
-                color: 'rgba(250, 236, 201, 0.08)',
+                color: 'rgba(0, 0, 0, 0.06)',
                 drawBorder: false
               },
               ticks: {
-                color: '#9c8a7e',
+                color: '#868e96',
                 font: {
                   family: timerFontFamily,
                   size: 11,
@@ -303,65 +225,8 @@ const StatsChart = {
     window.focusChartInstance = focusChartInstance;
     this.setupPopoutListeners(canvas);
 
-    this.renderDailyBreakdown(dailyData, taskColorMap);
     this.updateMetrics(daysCount, dailyData);
     this.renderSessionLog();
-  },
-
-  /**
-   * Renders a clear breakdown of each day and its tasks with dedicated times
-   * Directly on the UI without requiring any tooltip.
-   */
-  renderDailyBreakdown(dailyData, taskColorMap) {
-    const legendEl = document.getElementById('chartTasksLegend');
-    if (!legendEl) return;
-
-    // Filter only days that actually have focus time
-    const activeDays = dailyData.filter(d => d.minutes > 0).reverse();
-
-    if (activeDays.length === 0) {
-      legendEl.innerHTML = '';
-      legendEl.style.display = 'none';
-      return;
-    }
-
-    legendEl.style.display = 'flex';
-    legendEl.className = 'chart-tasks-legend';
-
-    legendEl.innerHTML = `
-      <div class="daily-breakdown-container">
-        ${activeDays.map(day => {
-          const dayH = Math.floor(day.minutes / 60);
-          const dayM = day.minutes % 60;
-          const dayTimeStr = dayH > 0 ? `${dayH}h ${dayM > 0 ? dayM + 'm' : ''}` : `${dayM} min`;
-          const tasksEntries = Object.entries(day.tasks || {}).sort((a, b) => b[1].minutes - a[1].minutes);
-
-          return `
-            <div class="day-breakdown-card">
-              <div class="day-breakdown-header">
-                <span class="day-breakdown-date">${this._escapeHtml(day.label)}</span>
-                <span class="day-breakdown-total">${dayTimeStr}</span>
-              </div>
-              <div class="day-breakdown-tasks">
-                ${tasksEntries.map(([title, tData]) => {
-                  const color = taskColorMap.get(title) || { bg: '#da4d4f' };
-                  const th = Math.floor(tData.minutes / 60);
-                  const tm = tData.minutes % 60;
-                  const tTime = th > 0 ? `${th}h ${tm > 0 ? tm + 'm' : ''}` : `${tm}m`;
-                  return `
-                    <div class="day-task-item">
-                      <span class="day-task-dot" style="background-color: ${color.bg};"></span>
-                      <span class="day-task-title">${this._escapeHtml(title)}:</span>
-                      <span class="day-task-time">${tTime}</span>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
   },
 
   updateMetrics(daysCount, dailyData = null) {
@@ -419,7 +284,7 @@ const StatsChart = {
       return `
         <div class="history-log-item">
           <div>
-            <div class="history-log-task">${this._escapeHtml(sess.taskTitle || 'Foco Geral')}</div>
+            <div class="history-log-task">${this._escapeHtml(sess.taskTitle || 'General Focus')}</div>
             <div class="history-log-meta">${formattedDate} at ${sess.timeFormatted || '--:--'}</div>
           </div>
           <div class="history-log-duration">+${sess.durationMinutes} min</div>
@@ -596,7 +461,7 @@ const StatsChart = {
     const ds = chart.data.datasets[target.datasetIndex];
     if (!ds) return;
 
-    const taskTitle = ds.label || 'Foco Geral';
+    const taskTitle = ds.label || 'General Focus';
     const taskColor = ds.backgroundColor || '#da4d4f';
     const dailyData = this._lastDailyData || [];
     const dayData = dailyData[target.dataIndex];

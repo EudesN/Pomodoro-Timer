@@ -12,16 +12,16 @@ ICON_SVG_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
 ICON_PNG_DIR="${HOME}/.local/share/icons/hicolor/512x512/apps"
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║   🍅 Pomus - Desinstalação Local            ║"
+echo "║   🍅 Pomus - Local Uninstall                ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
 remove_file() {
     if [ -f "$1" ] || [ -L "$1" ]; then
         rm -f "$1"
-        echo "✔ Removido: $1"
+        echo "✔ Removed: $1"
     else
-        echo "  (não encontrado: $1)"
+        echo "  (not found: $1)"
     fi
 }
 
@@ -32,7 +32,7 @@ remove_file "${ICON_PNG_DIR}/${APP_NAME}.png"
 remove_file "${HOME}/.local/share/pixmaps/${APP_NAME}.png"
 remove_file "${HOME}/.local/share/pixmaps/${APP_NAME}.svg"
 
-# Atualizar caches do desktop
+# Update desktop caches
 if command -v update-desktop-database &>/dev/null; then
     update-desktop-database "${APPS_DIR}" 2>/dev/null || true
 fi
@@ -42,7 +42,7 @@ fi
 
 echo ""
 echo "═══════════════════════════════════════════════"
-echo "  ✅ Desinstalação concluída."
-echo "  Os dados do aplicativo (pomus_data.json) não"
-echo "  foram removidos. Exclua manualmente se desejar."
+echo "  ✅ Uninstall complete."
+echo "  App data (pomus_data.json) was not removed."
+echo "  Delete it manually if you wish."
 echo "═══════════════════════════════════════════════"

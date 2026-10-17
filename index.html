@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#da4d4f">
   <title>Popomus - Focus Timer & Productivity</title>
   <meta name="description" content="Popomus - Elegant, customizable productivity timer with Pomofocus-inspired task management, rich themes, and focus analytics.">
   
@@ -11,33 +12,34 @@
   <link rel="alternate icon" type="image/png" href="assets/icon.png">
   <link rel="apple-touch-icon" href="assets/icon.png">
   
-  <!-- Preconnect to Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+  <!-- Self-hosted fonts (work offline, no third-party requests) -->
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
   
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=2.3">
+  <link rel="stylesheet" href="css/styles.css">
 
   <!-- Chart.js local offline asset -->
   <script src="assets/chart.umd.min.js" defer></script>
   
   <!-- Modular Scripts -->
-  <script src="js/storage.js?v=2.2" defer></script>
-  <script src="js/audio.js?v=2.2" defer></script>
-  <script src="js/roller.js?v=2.2" defer></script>
-  <script src="js/chart.js?v=2.3" defer></script>
-  <script src="js/timer.js?v=2.2" defer></script>
-  <script src="js/calendar.js?v=2.4" defer></script>
-  <script src="js/app.js?v=2.4" defer></script>
+  <script src="js/storage.js" defer></script>
+  <script src="js/themes.js" defer></script>
+  <script src="js/audio.js" defer></script>
+  <script src="js/roller.js" defer></script>
+  <script src="js/chart.js" defer></script>
+  <script src="js/timer.js" defer></script>
+  <script src="js/tracking.js" defer></script>
+  <script src="js/calendar.js" defer></script>
+  <script src="js/ui.js" defer></script>
+  <script src="js/app.js" defer></script>
 </head>
 <body data-mode="pomodoro">
 
   <!-- Ambient background glow element -->
   <div class="ambient-glow" aria-hidden="true"></div>
 
-  <!-- Confetti Canvas overlay for celebrations -->
-  <canvas id="confettiCanvas" aria-hidden="true"></canvas>
+  <!-- Screen reader announcements (timer start/pause, mode changes) -->
+  <div id="srAnnouncer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
   <div class="app-container">
 
@@ -58,7 +60,7 @@
         </button>
 
         <!-- Quick Theme Switcher Button -->
-        <button id="btnThemeToggle" class="header-btn icon-only" aria-label="Change theme">
+        <button id="btnThemeToggle" class="header-btn icon-only" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="quickThemeMenu">
           <svg viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C21.438 6.2 17.2 2 12 2z"/></svg>
         </button>
 
@@ -114,7 +116,7 @@
           <!-- Digital Content inside Ring -->
           <div class="timer-display-content">
             <span id="timerModeBadge" class="timer-mode-badge">Pomodoro</span>
-            <div id="timerDigits" class="timer-digits">25:00</div>
+            <div id="timerDigits" class="timer-digits" role="timer" aria-live="off" aria-label="Time remaining">25:00</div>
             
             <!-- Clean cycle counter -->
             <div class="timer-cycle-indicator">
@@ -170,9 +172,10 @@
       </div>
 
       <hr class="tasks-divider" />
+      <p id="tasksKeyboardHint" class="sr-only">Press Enter to focus on a task. Use Alt plus Arrow Up or Arrow Down to reorder.</p>
 
       <!-- Task List Container (Draggable cards with active highlight) -->
-      <div id="tasksList" class="tasks-list" role="list">
+      <div id="tasksList" class="tasks-list" role="list" aria-describedby="tasksKeyboardHint">
         <!-- Rendered dynamically by app.js -->
       </div>
 
@@ -231,31 +234,13 @@
 
   </div>
 
-  <!-- Quick Theme Selector Popover (Inspirations/palete.png & palete2.png) -->
-  <div id="quickThemeMenu" class="quick-theme-popover" style="display: none;">
-    <div class="quick-theme-title">Choose a Theme</div>
-    <div class="quick-theme-grid">
-      <button class="theme-palette-btn" data-theme="sunset">
-        <span class="swatch" style="background: #da4d4f;"></span>
-        <span>Sunset</span>
-      </button>
-      <button class="theme-palette-btn" data-theme="earth">
-        <span class="swatch" style="background: #ea845e;"></span>
-        <span>Warm Earth</span>
-      </button>
-      <button class="theme-palette-btn" data-theme="dusk">
-        <span class="swatch" style="background: #dd7057;"></span>
-        <span>Dusk</span>
-      </button>
-      <button class="theme-palette-btn" data-theme="night">
-        <span class="swatch" style="background: #3d2228;"></span>
-        <span>Deep Night</span>
-      </button>
-      <button class="theme-palette-btn" data-theme="gunmetal">
-        <span class="swatch" style="background: #213241;"></span>
-        <span>Slate</span>
-      </button>
-    </div>
+  <!-- Quick Theme Selector Popover (rendered from js/themes.js) -->
+  <div id="quickThemeMenu" class="quick-theme-popover" role="menu" aria-label="Themes" hidden>
+    <div class="quick-theme-title">Theme</div>
+    <div id="quickThemeGrid" class="quick-theme-grid"></div>
+    <div class="quick-theme-title">Background</div>
+    <div id="quickBackgroundGroup" class="segmented-control" role="radiogroup" aria-label="Background style"></div>
+    <button id="btnQuickThemeMore" class="quick-theme-more" type="button">Customize colors…</button>
   </div>
 
   <!-- Modal: Statistics & History -->
@@ -460,7 +445,7 @@
       </div>
 
       <div class="modal-footer">
-        <button id="btnClearHistory" class="header-btn" style="color: #da4d4f;">Clear History</button>
+        <button id="btnClearHistory" class="btn-danger-ghost" type="button">Clear History</button>
       </div>
     </div>
   </dialog>
@@ -553,10 +538,10 @@
             <span class="toggle-title">Task Time Tracking Mode</span>
             <span class="toggle-desc">Choose when focused time is saved and credited to the task</span>
           </div>
-          <div style="min-width: 220px;">
-            <select id="selectTaskTimeTracking" class="sound-select" style="width: 100%; cursor: pointer;">
-              <option value="on_complete">Only when task is completed (Default)</option>
-              <option value="on_pause_or_complete">On timer pause or completion</option>
+          <div class="select-field wide">
+            <select id="selectTaskTimeTracking" data-custom-select aria-label="Task time tracking mode">
+              <option value="on_complete" data-desc="Credit focus time once, when the task is completed (default)">On task completion</option>
+              <option value="on_pause_or_complete" data-desc="Credit focus time every time the timer pauses or finishes">On pause or completion</option>
             </select>
           </div>
         </div>
@@ -580,12 +565,14 @@
             <span class="toggle-desc">Sound chime when timers finish</span>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <select id="selectAlarmSound" class="sound-select">
-              <option value="bell">Harmonious Bell</option>
-              <option value="zen">Tibetan Singing Bowl</option>
-              <option value="beep">Soft Digital Beep</option>
-              <option value="marimba">Acoustic Marimba</option>
-            </select>
+            <div class="select-field">
+              <select id="selectAlarmSound" data-custom-select aria-label="Alarm sound">
+                <option value="bell" data-desc="Clear, resonant chime">Harmonious Bell</option>
+                <option value="zen" data-desc="Warm, long-sustain tone">Tibetan Singing Bowl</option>
+                <option value="beep" data-desc="Short, unobtrusive tone">Soft Digital Beep</option>
+                <option value="marimba" data-desc="Bright, wooden notes">Acoustic Marimba</option>
+              </select>
+            </div>
             <button id="btnPreviewSound" class="btn-preview-sound" type="button" aria-label="Preview alarm sound">
               <svg viewBox="0 0 24 24">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
@@ -620,72 +607,43 @@
           </label>
         </div>
 
-        <!-- Theme & Color Switching Section (Inspirations Palettes) -->
-        <div>
-          <h3 class="settings-section-title">Appearance & Color Themes</h3>
-          <div class="theme-select-grid">
-            <label class="theme-card-option">
-              <input type="radio" name="settingsTheme" value="sunset">
-              <span class="theme-card-body">
-                <span class="theme-color-preview" style="background: #da4d4f;"></span>
-                <span class="theme-name">Sunset Glow</span>
-              </span>
-            </label>
+        <!-- Appearance: theme presets, background style and custom colors -->
+        <div id="settingsAppearance">
+          <h3 class="settings-section-title">Appearance</h3>
+          <p class="settings-section-hint">Changes preview live. Colors are adjusted automatically to keep text readable.</p>
 
-            <label class="theme-card-option">
-              <input type="radio" name="settingsTheme" value="earth">
-              <span class="theme-card-body">
-                <span class="theme-color-preview" style="background: #ea845e;"></span>
-                <span class="theme-name">Warm Earth</span>
-              </span>
-            </label>
+          <div id="settingsThemeGrid" class="theme-select-grid" role="radiogroup" aria-label="Color theme"></div>
 
-            <label class="theme-card-option">
-              <input type="radio" name="settingsTheme" value="dusk">
-              <span class="theme-card-body">
-                <span class="theme-color-preview" style="background: #dd7057;"></span>
-                <span class="theme-name">Dusk Horizons</span>
-              </span>
-            </label>
-
-            <label class="theme-card-option">
-              <input type="radio" name="settingsTheme" value="night">
-              <span class="theme-card-body">
-                <span class="theme-color-preview" style="background: #3d2228;"></span>
-                <span class="theme-name">Deep Night</span>
-              </span>
-            </label>
-
-            <label class="theme-card-option">
-              <input type="radio" name="settingsTheme" value="gunmetal">
-              <span class="theme-card-body">
-                <span class="theme-color-preview" style="background: #213241;"></span>
-                <span class="theme-name">Midnight Slate</span>
-              </span>
-            </label>
-
-            <label class="theme-card-option">
-              <input type="radio" name="settingsTheme" value="custom">
-              <span class="theme-card-body">
-                <span class="theme-color-preview custom" style="background: linear-gradient(135deg, #da4d4f, #f4a971);"></span>
-                <span class="theme-name">Custom</span>
-              </span>
-            </label>
+          <div class="setting-toggle-row appearance-row">
+            <div class="toggle-info">
+              <span class="toggle-title">Background Style</span>
+              <span class="toggle-desc">Solid color, soft gradient or a deep, darker tone</span>
+            </div>
+            <div id="settingsBackgroundGroup" class="segmented-control" role="radiogroup" aria-label="Background style"></div>
           </div>
 
-          <!-- Custom Colors Inputs (visible when custom theme is selected) -->
-          <div id="customColorSettings" class="custom-colors-panel" style="display: none;">
+          <!-- Custom Colors (visible when the custom theme is selected) -->
+          <div id="customColorSettings" class="custom-colors-panel" hidden>
             <div class="color-picker-item">
-              <label for="colorPomoInput">Focus:</label>
               <input type="color" id="colorPomoInput" value="#da4d4f">
+              <label for="colorPomoInput">
+                <span class="color-picker-name">Focus</span>
+                <span class="color-picker-hex" data-hex-for="colorPomoInput">#DA4D4F</span>
+              </label>
             </div>
             <div class="color-picker-item">
-              <label for="colorShortInput">Short Break:</label>
               <input type="color" id="colorShortInput" value="#ea845e">
+              <label for="colorShortInput">
+                <span class="color-picker-name">Short Break</span>
+                <span class="color-picker-hex" data-hex-for="colorShortInput">#EA845E</span>
+              </label>
             </div>
             <div class="color-picker-item">
-              <label for="colorLongInput">Long Break:</label>
               <input type="color" id="colorLongInput" value="#f39336">
+              <label for="colorLongInput">
+                <span class="color-picker-name">Long Break</span>
+                <span class="color-picker-hex" data-hex-for="colorLongInput">#F39336</span>
+              </label>
             </div>
           </div>
         </div>
@@ -709,9 +667,23 @@
       </div>
 
       <div class="modal-footer">
-        <button id="btnSaveSettings" class="btn-primary" style="height: 3rem; font-size: 0.95rem; padding: 0 1.8rem;">
-          Save Changes
-        </button>
+        <button id="btnCancelSettings" class="btn-modal-secondary" type="button">Cancel</button>
+        <button id="btnSaveSettings" class="btn-modal-primary" type="button">Save Changes</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Confirmation (replaces native confirm()) -->
+  <dialog id="confirmDialog" class="confirm-dialog" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+    <div class="modal-content confirm-content">
+      <div class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      </div>
+      <h2 id="confirmTitle" class="confirm-title"></h2>
+      <p id="confirmMessage" class="confirm-message"></p>
+      <div class="confirm-actions">
+        <button id="btnConfirmCancel" class="btn-modal-secondary" type="button">Cancel</button>
+        <button id="btnConfirmOk" class="btn-modal-primary" type="button">Confirm</button>
       </div>
     </div>
   </dialog>

@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-Pomus - Aplicativo Desktop de Foco e Produtividade
-Inicia o servidor local integrado e renderiza a aplicação em uma janela desktop nativa (GTK3 + WebKit2).
-Inclui suporte completo a tela cheia (F11), bridge de som nativo (PipeWire / PulseAudio),
-notificações nativas do Linux (libnotify), bandeja do sistema (AppIndicator),
-sincronização de persistência em disco e integração XDG.
+Pomus - Focus & Productivity Desktop App
+Starts the built-in local server and renders the app in a native desktop window (GTK3 + WebKit2).
+Includes full fullscreen support (F11), a native sound bridge (PipeWire / PulseAudio),
+native Linux notifications (libnotify), a system tray icon (AppIndicator),
+on-disk persistence sync and XDG integration.
 """
 
 import argparse
 import http.server
 import json
 import os
+import posixpath
+import re
 import shutil
+import tempfile
 import signal
 import socket
 import socketserver
@@ -22,13 +25,13 @@ import time
 import urllib.parse
 import webbrowser
 
-# Previne telas brancas no WebKitGTK sob Wayland, compositores modernos e drivers Mesa/Nvidia
+# Prevents blank white screens in WebKitGTK under Wayland, modern compositors and Mesa/Nvidia drivers
 if "WEBKIT_DISABLE_DMABUF_RENDERER" not in os.environ:
     os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
 
-# ── Identidade do processo para Wayland / KDE Plasma / Docks ──
-# CRUCIAL: Definir prgname antes de qualquer chamada ao GLib/GTK para que
-# o app_id da janela Wayland seja 'pomus', correspondendo ao pomus.desktop
+# ── Process identity for Wayland / KDE Plasma / Docks ──
+# CRUCIAL: set prgname before any GLib/GTK call so that the
+# Wayland window app_id is 'pomus', matching pomus.desktop
 try:
     import gi
     gi.require_version("GLib", "2.0")
@@ -53,12 +56,18 @@ XDG_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR")
 SOCKET_DIR = XDG_RUNTIME_DIR if (XDG_RUNTIME_DIR and os.path.isdir(XDG_RUNTIME_DIR)) else XDG_POMUS_DIR
 SOCKET_PATH = os.path.join(SOCKET_DIR, "pomus.sock")
 
+# Only these paths are served as static files (avoids exposing .git, app.py, etc.)
+STATIC_ALLOWED_PREFIXES = ("/css/", "/js/", "/assets/")
+STATIC_ALLOWED_FILES = ("/", "/index.html")
+MAX_BODY_BYTES = 20 * 1024 * 1024
+SOUND_NAME_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+
 _main_window = None
 _main_webview = None
 
 
 def _show_and_present_window(window):
-    """Traz a janela do Pomus para o primeiro plano, desminimiza e foca."""
+    """Brings the Pomus window to the front, unminimizes and focuses it."""
     if window:
         try:
             window.show_all()
@@ -74,7 +83,7 @@ def _show_and_present_window(window):
 
 
 def _handle_instance_show():
-    """Traz a janela para primeiro plano e, se o timer não estiver rodando, recarrega para aplicar alterações."""
+    """Brings the window to the front and, if the timer is not running, reloads to apply changes."""
     global _main_window, _main_webview
     if _main_window:
         _show_and_present_window(_main_window)
@@ -91,10 +100,10 @@ def _handle_instance_show():
 
 def try_activate_existing_instance():
     """
-    Verifica se já existe uma instância do Pomus rodando.
-    Se existir, envia comando para focar a janela e retorna True.
+    Checks whether a Pomus instance is already running.
+    If so, sends a command to focus its window and returns True.
     """
-    # Tentativa 1: Unix Domain Socket
+    # Attempt 1: Unix domain socket
     if os.path.exists(SOCKET_PATH):
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -113,7 +122,7 @@ def try_activate_existing_instance():
         except Exception:
             pass
 
-    # Tentativa 2: Endpoint HTTP local /api/show
+    # Attempt 2: local HTTP endpoint /api/show
     try:
         import urllib.request
         req = urllib.request.Request(
@@ -132,7 +141,7 @@ def try_activate_existing_instance():
 
 
 def start_single_instance_listener(window):
-    """Inicia um socket UNIX em segundo plano para escutar solicitações de foco de novas instâncias."""
+    """Starts a background UNIX socket that listens for focus requests from new instances."""
     try:
         if os.path.exists(SOCKET_PATH):
             try:
@@ -164,40 +173,40 @@ def start_single_instance_listener(window):
         t.start()
         return sock
     except Exception as e:
-        print(f"[POMUS] Aviso ao iniciar socket de instância única: {e}")
+        print(f"[POMUS] Warning starting single-instance socket: {e}")
         return None
 
 
 def get_data_file_path():
-    """Retorna o caminho do arquivo de dados, migrando para XDG se necessário."""
+    """Returns the data file path, migrating it to XDG if needed."""
     xdg_data_file = os.path.join(XDG_POMUS_DIR, "pomus_data.json")
 
-    # Se já existe no diretório XDG, usar ele
+    # If it already exists in the XDG directory, use it
     if os.path.isfile(xdg_data_file):
         return xdg_data_file
 
-    # Se existe o arquivo local legado, migrar para XDG
+    # If the legacy local file exists, migrate it to XDG
     if os.path.isfile(DATA_FILE):
         try:
             os.makedirs(XDG_POMUS_DIR, exist_ok=True)
             shutil.copy2(DATA_FILE, xdg_data_file)
-            print(f"[POMUS] Dados migrados para: {xdg_data_file}")
+            print(f"[POMUS] Data migrated to: {xdg_data_file}")
             return xdg_data_file
         except Exception as e:
-            print(f"[POMUS] Falha ao migrar dados para XDG ({e}), usando arquivo local.")
+            print(f"[POMUS] Failed to migrate data to XDG ({e}), using local file.")
             return DATA_FILE
 
-    # Nenhum arquivo existe ainda, criar no diretório XDG
+    # No file exists yet; create it in the XDG directory
     os.makedirs(XDG_POMUS_DIR, exist_ok=True)
     return xdg_data_file
 
 
-# Resolve o caminho de dados na inicialização
+# Resolve the data path at startup
 ACTIVE_DATA_FILE = get_data_file_path()
 
 
 def ensure_desktop_integration():
-    """Garante que ícones e .desktop estejam instalados no ambiente do usuário (XDG)."""
+    """Ensures icons and the .desktop entry are installed in the user environment (XDG)."""
     try:
         apps_dir = os.path.join(XDG_DATA_HOME, "applications")
         pixmaps_dir = os.path.join(XDG_DATA_HOME, "pixmaps")
@@ -206,13 +215,13 @@ def ensure_desktop_integration():
         os.makedirs(apps_dir, exist_ok=True)
         os.makedirs(pixmaps_dir, exist_ok=True)
 
-        # 1. Copiar para pixmaps (fallback universal para docks no KDE, GNOME, XFCE)
+        # 1. Copy to pixmaps (universal fallback for docks on KDE, GNOME, XFCE)
         if os.path.isfile(ICON_PATH):
             shutil.copy2(ICON_PATH, os.path.join(pixmaps_dir, "pomus.png"))
         if os.path.isfile(ICON_SVG_PATH):
             shutil.copy2(ICON_SVG_PATH, os.path.join(pixmaps_dir, "pomus.svg"))
 
-        # 2. Instalar no tema hicolor (scalable e 512x512)
+        # 2. Install into the hicolor theme (scalable and 512x512)
         if os.path.isfile(ICON_SVG_PATH):
             scalable_dir = os.path.join(icons_base, "scalable", "apps")
             os.makedirs(scalable_dir, exist_ok=True)
@@ -223,7 +232,7 @@ def ensure_desktop_integration():
             os.makedirs(hicolor_512, exist_ok=True)
             shutil.copy2(ICON_PATH, os.path.join(hicolor_512, "pomus.png"))
 
-        # 3. Gerar/Atualizar pomus.desktop
+        # 3. Generate/update pomus.desktop
         desktop_dest = os.path.join(apps_dir, "pomus.desktop")
         bin_path = os.path.join(os.path.expanduser("~/.local/bin"), "pomus")
         exec_target = bin_path if os.path.isfile(bin_path) else os.path.join(DIRECTORY, "pomus")
@@ -248,7 +257,7 @@ def ensure_desktop_integration():
             f.write(desktop_content)
         os.chmod(desktop_dest, 0o644)
 
-        # 4. Atualizar caches se ferramentas existirem
+        # 4. Update caches if the tools are available
         for cmd in [["update-desktop-database", apps_dir], ["gtk-update-icon-cache", "-f", "-t", icons_base]]:
             if shutil.which(cmd[0]):
                 try:
@@ -256,15 +265,15 @@ def ensure_desktop_integration():
                 except Exception:
                     pass
     except Exception as e:
-        print(f"[POMUS] Aviso na integração desktop: {e}")
+        print(f"[POMUS] Desktop integration warning: {e}")
 
 
-# Notificações Nativas do Linux
+# Native Linux Notifications
 _notify_initialized = False
 
 
 def init_native_notifications():
-    """Inicializa o sistema de notificações nativas via libnotify (gi.repository.Notify)."""
+    """Initializes native notifications via libnotify (gi.repository.Notify)."""
     global _notify_initialized
     if _notify_initialized:
         return True
@@ -280,10 +289,10 @@ def init_native_notifications():
 
 
 def send_native_notification(title, body, icon_path=None):
-    """Envia uma notificação nativa do Linux usando libnotify ou fallback para notify-send."""
+    """Sends a native Linux notification using libnotify, falling back to notify-send."""
     icon = icon_path or ICON_PATH
 
-    # Tentativa 1: libnotify via GObject Introspection
+    # Attempt 1: libnotify via GObject Introspection
     try:
         import gi
         gi.require_version("Notify", "0.7")
@@ -297,7 +306,7 @@ def send_native_notification(title, body, icon_path=None):
     except Exception:
         pass
 
-    # Tentativa 2: fallback para notify-send CLI
+    # Attempt 2: fall back to the notify-send CLI
     notify_bin = shutil.which("notify-send")
     if notify_bin:
         try:
@@ -310,12 +319,14 @@ def send_native_notification(title, body, icon_path=None):
     return False
 
 
-# Reprodução de Áudio Nativo
+# Native Audio Playback
 
 def play_sound_native(sound_name, volume=0.8):
-    """Reproduz som nativo no Linux utilizando pw-play, paplay ou canberra."""
+    """Plays a sound natively on Linux using pw-play, paplay or canberra."""
     if volume <= 0:
         return
+    if not SOUND_NAME_RE.match(sound_name or ""):
+        sound_name = "bell"
 
     sound_file = os.path.join(SOUNDS_DIR, f"{sound_name}.wav")
     if not os.path.isfile(sound_file):
@@ -354,36 +365,81 @@ def play_sound_native(sound_name, volume=0.8):
                 continue
 
 
-# Servidor HTTP Integrado
+# Built-in HTTP Server
 
 class PomusHTTPHandler(http.server.SimpleHTTPRequestHandler):
-    """Servidor HTTP integrado com API de áudio, notificações e persistência em disco."""
+    """Built-in HTTP server with audio, notification and on-disk persistence APIs."""
+    # Older Python versions don't know the web font type
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".woff2": "font/woff2"}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
     def log_message(self, format, *args):
-        # Mantém o console limpo
+        # Keep the console clean
         pass
 
     def end_headers(self):
-        # Desabilita cache completamente para que atualizações em arquivos locais reflitam instantaneamente
+        # Disable caching entirely so changes to local files show up instantly
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
-        if self.path.startswith("/api/"):
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 
-    def do_OPTIONS(self):
-        self.send_response(200)
+    def list_directory(self, path):
+        # No directory listings
+        self.send_error(404)
+        return None
+
+    def _allowed_hosts(self):
+        port = self.server.server_address[1]
+        return {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+    def _is_trusted_request(self):
+        """
+        Blocks access from other sites open in the user's browser:
+        - Host must be this server (protects against DNS rebinding);
+        - Origin, when present, must be this application.
+        """
+        if self.headers.get("Host", "") not in self._allowed_hosts():
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            parsed = urllib.parse.urlparse(origin)
+            if parsed.scheme != "http" or parsed.netloc not in self._allowed_hosts():
+                return False
+        return True
+
+    def _send_json(self, status, payload):
+        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json_body(self):
+        """Reads and decodes the JSON request body. Returns None if invalid."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            return None
+        if length <= 0 or length > MAX_BODY_BYTES:
+            return None
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        
-        # Endpoint de áudio nativo: /api/play-sound?sound=bell&volume=0.8
+
+        if parsed.path.startswith("/api/") and not self._is_trusted_request():
+            self._send_json(403, {"error": "forbidden"})
+            return
+
+        # Native audio endpoint: /api/play-sound?sound=bell&volume=0.8
         if parsed.path == "/api/play-sound":
             params = urllib.parse.parse_qs(parsed.query)
             sound_name = params.get("sound", ["bell"])[0]
@@ -392,98 +448,100 @@ class PomusHTTPHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 vol = 0.8
             threading.Thread(target=play_sound_native, args=(sound_name, vol), daemon=True).start()
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"status":"ok"}')
+            self._send_json(200, {"status": "ok"})
             return
 
-        # Endpoint de sincronização (leitura): /api/sync
+        # Sync endpoint (read): /api/sync
         if parsed.path == "/api/sync":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+            data = b"{}"
             if os.path.isfile(ACTIVE_DATA_FILE):
                 try:
                     with open(ACTIVE_DATA_FILE, "rb") as f:
-                        self.wfile.write(f.read())
-                    return
-                except Exception:
+                        data = f.read() or b"{}"
+                except OSError:
                     pass
-            self.wfile.write(b'{}')
+            self._send_json(200, data)
             return
 
-        # Arquivos estáticos comuns
+        if parsed.path.startswith("/api/"):
+            self._send_json(404, {"error": "not found"})
+            return
+
+        # Static files: web UI only (path is normalized to block "/js/../app.py")
+        static_path = posixpath.normpath(urllib.parse.unquote(parsed.path))
+        if parsed.path.endswith("/") and static_path != "/":
+            static_path += "/"
+        if static_path not in STATIC_ALLOWED_FILES and not static_path.startswith(STATIC_ALLOWED_PREFIXES):
+            self.send_error(404)
+            return
         super().do_GET()
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        
-        # Endpoint de sincronização (gravação): /api/sync
+
+        if not self._is_trusted_request():
+            self._send_json(403, {"error": "forbidden"})
+            return
+
+        # Sync endpoint (write): /api/sync
         if parsed.path == "/api/sync":
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
+            data = self._read_json_body()
+            if not isinstance(data, dict):
+                self._send_json(400, {"error": "invalid payload"})
+                return
             try:
-                data = json.loads(body.decode("utf-8"))
-                with open(ACTIVE_DATA_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"status":"saved"}')
+                write_json_atomic(ACTIVE_DATA_FILE, data)
+            except OSError as e:
+                self._send_json(500, {"error": str(e)})
                 return
-            except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
-                return
+            self._send_json(200, {"status": "saved"})
+            return
 
-        # Endpoint de notificação nativa: /api/notify
+        # Native notification endpoint: /api/notify
         if parsed.path == "/api/notify":
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            try:
-                data = json.loads(body.decode("utf-8"))
-                title = data.get("title", "Popomus")
-                msg = data.get("body", "")
-                threading.Thread(
-                    target=send_native_notification,
-                    args=(title, msg),
-                    daemon=True
-                ).start()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"status":"ok"}')
+            data = self._read_json_body()
+            if not isinstance(data, dict):
+                self._send_json(400, {"error": "invalid payload"})
                 return
-            except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
-                return
+            title = str(data.get("title", "Popomus"))[:200]
+            msg = str(data.get("body", ""))[:500]
+            threading.Thread(target=send_native_notification, args=(title, msg), daemon=True).start()
+            self._send_json(200, {"status": "ok"})
+            return
 
-        # Endpoint para focar janela existente (instância única): /api/show
+        # Endpoint to focus the existing window (single instance): /api/show
         if parsed.path == "/api/show":
             try:
                 from gi.repository import GLib
                 GLib.idle_add(_handle_instance_show)
             except Exception:
                 pass
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"status":"focused"}')
+            self._send_json(200, {"status": "focused"})
             return
 
-        self.send_response(404)
-        self.end_headers()
+        self._send_json(404, {"error": "not found"})
+
+
+def write_json_atomic(path, data):
+    """Writes JSON to a temp file and replaces the target, avoiding a corrupted file on failure."""
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=".pomus_", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def find_available_port(start_port=DEFAULT_PORT, max_tries=30):
-    """Encontra uma porta TCP local disponível."""
+    """Finds an available local TCP port."""
     for port in range(start_port, start_port + max_tries):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             if s.connect_ex(("127.0.0.1", port)) != 0:
@@ -497,23 +555,23 @@ class PomusTCPServer(socketserver.ThreadingTCPServer):
 
 
 def start_local_server(port):
-    """Inicia o servidor HTTP multithreaded em segundo plano em uma thread daemon."""
+    """Starts the multithreaded HTTP server in the background on a daemon thread."""
     server = PomusTCPServer(("127.0.0.1", port), PomusHTTPHandler)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     return server
 
 
-# Bandeja do Sistema (System Tray / AppIndicator)
+# System Tray (AppIndicator)
 
 _tray_indicator = None
 
 
 def setup_system_tray(window=None, gtk_module=None):
     """
-    Configura ícone na bandeja do sistema com menu de contexto.
-    Usa AyatanaAppIndicator3 com fallback para AppIndicator3.
-    Retorna True se a bandeja foi inicializada com sucesso.
+    Sets up the system tray icon with a context menu.
+    Uses AyatanaAppIndicator3, falling back to AppIndicator3.
+    Returns True if the tray was initialized successfully.
     """
     global _tray_indicator
     try:
@@ -523,7 +581,7 @@ def setup_system_tray(window=None, gtk_module=None):
             gi.require_version("Gtk", "3.0")
             from gi.repository import Gtk
 
-        # Tenta AyatanaAppIndicator3 (padrão moderno) ou AppIndicator3
+        # Try AyatanaAppIndicator3 (modern default) or AppIndicator3
         AppIndicator = None
         for lib_name in ("AyatanaAppIndicator3", "AppIndicator3"):
             try:
@@ -536,7 +594,7 @@ def setup_system_tray(window=None, gtk_module=None):
         if AppIndicator is None:
             return False
 
-        # Usa o ícone SVG ou PNG do projeto
+        # Use the project's SVG or PNG icon
         icon_for_tray = ICON_SVG_PATH if os.path.isfile(ICON_SVG_PATH) else ICON_PATH
 
         indicator = AppIndicator.Indicator.new(
@@ -575,25 +633,25 @@ def setup_system_tray(window=None, gtk_module=None):
         return True
 
     except Exception as e:
-        print(f"[POMUS] Bandeja do sistema não disponível ({e}).")
+        print(f"[POMUS] System tray not available ({e}).")
         return False
 
 
 def _tray_show_window(window):
-    """Mostra e foca a janela do Pomus."""
+    """Shows and focuses the Pomus window."""
     if window:
         window.present()
         window.show_all()
 
 
 def _tray_hide_window(window):
-    """Oculta a janela do Pomus (mantém na bandeja)."""
+    """Hides the Pomus window (keeps it in the tray)."""
     if window:
         window.hide()
 
 
 def _tray_reload_window():
-    """Recarrega a aplicação forçando bypass de cache."""
+    """Reloads the app, bypassing the cache."""
     global _main_webview
     if _main_webview:
         try:
@@ -606,7 +664,7 @@ def _tray_reload_window():
 
 
 def _flush_persistence(webview, Gtk=None):
-    """Garante que o estado do timer e dados pendentes sejam gravados no disco antes de fechar."""
+    """Ensures timer state and pending data are written to disk before closing."""
     if not webview:
         return
     try:
@@ -627,30 +685,30 @@ def _flush_persistence(webview, Gtk=None):
 
 
 def _tray_quit(Gtk):
-    """Encerra a aplicação pela bandeja garantindo persistência do timer e dados."""
+    """Quits the app from the tray, making sure timer state and data are persisted."""
     global _main_webview
     _flush_persistence(_main_webview, Gtk)
     Gtk.main_quit()
 
 
-# Janela Nativa GTK3 + WebKit2
+# Native GTK3 + WebKit2 Window
 
 def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
     """
-    Inicializa e exibe a janela nativa do desktop utilizando PyGObject (GTK3 + WebKit2).
-    Suporta F11 para tela cheia, bridge de som integrado, notificações nativas e
-    bandeja do sistema.
+    Initializes and shows the native desktop window using PyGObject (GTK3 + WebKit2).
+    Supports F11 fullscreen, the built-in sound bridge, native notifications and
+    the system tray.
     """
     try:
         import gi
         gi.require_version("Gtk", "3.0")
         from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 
-        # ── Identidade do processo para Wayland / KDE Plasma ──
+        # ── Process identity for Wayland / KDE Plasma ──
         GLib.set_prgname("pomus")
         GLib.set_application_name("Popomus")
 
-        # Tenta carregar WebKit2 4.1 ou 4.0
+        # Try loading WebKit2 4.1 or 4.0
         try:
             gi.require_version("WebKit2", "4.1")
             from gi.repository import WebKit2
@@ -658,19 +716,19 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
             gi.require_version("WebKit2", "4.0")
             from gi.repository import WebKit2
 
-        # Inicialização do GTK
+        # GTK initialization
         if not Gtk.init_check()[0]:
-            print("[POMUS] Falha ao inicializar display GTK.")
+            print("[POMUS] Failed to initialize GTK display.")
             return False
 
-        # Configurar caminhos do tema de ícones
+        # Set up icon theme search paths
         icon_theme = Gtk.IconTheme.get_default()
         if icon_theme:
             icon_theme.append_search_path(ASSETS_DIR)
             icon_theme.append_search_path(os.path.join(XDG_DATA_HOME, "icons"))
             icon_theme.append_search_path(os.path.join(XDG_DATA_HOME, "pixmaps"))
 
-        # Configurar ícone padrão global da aplicação
+        # Set the global default application icon
         Gtk.Window.set_default_icon_name("pomus")
         if os.path.isfile(ICON_PATH):
             try:
@@ -678,12 +736,12 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
             except Exception:
                 pass
 
-        # ── Tema escuro para combinar com a interface do Pomus ──
+        # ── Dark theme to match the Pomus UI ──
         gtk_settings = Gtk.Settings.get_default()
         if gtk_settings:
             gtk_settings.set_property("gtk-application-prefer-dark-theme", True)
 
-        # Inicializar notificações nativas
+        # Initialize native notifications
         init_native_notifications()
 
         window = Gtk.Window(title="Popomus")
@@ -691,12 +749,12 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         window.set_position(Gtk.WindowPosition.CENTER)
         window._is_fullscreen = False
 
-        # ── Identidade da janela para o gerenciador de tarefas / dock ──
+        # ── Window identity for the task manager / dock ──
         window.set_role("pomus")
         window.set_wmclass("pomus", "pomus")
         window.set_icon_name("pomus")
 
-        # Ícone nativo da aplicação com lista multi-resolução para docks
+        # Native app icon with a multi-resolution list for docks
         if os.path.isfile(ICON_PATH):
             try:
                 base_pixbuf = GdkPixbuf.Pixbuf.new_from_file(ICON_PATH)
@@ -712,11 +770,11 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
             except Exception as e:
                 pass
 
-        # Configuração de persistência de dados do WebKit
+        # WebKit data persistence setup
         data_dir = os.path.join(XDG_POMUS_DIR, "webkit_data")
         cache_dir = os.path.join(XDG_POMUS_DIR, "webkit_cache")
         os.makedirs(data_dir, exist_ok=True)
-        # Limpa cache em disco residual do WebKit para garantir que os arquivos locais sempre atualizem
+        # Clear leftover WebKit disk cache so local files always refresh
         try:
             shutil.rmtree(cache_dir, ignore_errors=True)
         except Exception:
@@ -744,8 +802,8 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         settings.set_enable_webgl(True)
         settings.set_enable_html5_local_storage(True)
         settings.set_enable_html5_database(True)
-        # O backend Python nativo (/api/play-sound com PipeWire/PulseAudio) é responsável pelo áudio
-        # Desativar webaudio/media interno do WebKit previne crashes do GStreamer no Linux
+        # The native Python backend (/api/play-sound with PipeWire/PulseAudio) handles audio
+        # Disabling WebKit's built-in webaudio/media prevents GStreamer crashes on Linux
         settings.set_enable_webaudio(False)
         settings.set_enable_media(False)
         settings.set_enable_smooth_scrolling(True)
@@ -756,10 +814,10 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
                 pass
 
         def on_load_failed(wv, event, failing_uri, error):
-            print(f"[POMUS] Erro ao carregar {failing_uri}: {error.message if hasattr(error, 'message') else error}")
+            print(f"[POMUS] Error loading {failing_uri}: {error.message if hasattr(error, 'message') else error}")
 
         def on_web_process_terminated(wv, reason):
-            print(f"[POMUS] Processo web finalizado ({reason}). Recarregando...")
+            print(f"[POMUS] Web process terminated ({reason}). Reloading...")
             try:
                 wv.reload()
             except Exception:
@@ -771,7 +829,7 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         webview.load_uri(url)
         window.add(webview)
 
-        # Atalhos de teclado: F11 tela cheia, F5 / Ctrl+R recarregar, F12 devtools
+        # Keyboard shortcuts: F11 fullscreen, F5 / Ctrl+R reload, F12 devtools
         def on_key_press(widget, event):
             if event.keyval == Gdk.KEY_F11:
                 if window._is_fullscreen:
@@ -784,12 +842,12 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
 
             ctrl_pressed = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
 
-            # F5 ou Ctrl+R: Recarregar aplicação sem cache
+            # F5 or Ctrl+R: reload the app without cache
             if event.keyval == Gdk.KEY_F5 or (ctrl_pressed and event.keyval in (Gdk.KEY_r, Gdk.KEY_R)):
                 webview.reload_bypass_cache()
                 return True
 
-            # F12 ou Ctrl+Shift+I: Abrir Web Inspector
+            # F12 or Ctrl+Shift+I: open Web Inspector
             if event.keyval == Gdk.KEY_F12 or (ctrl_pressed and event.keyval in (Gdk.KEY_i, Gdk.KEY_I)):
                 try:
                     inspector = webview.get_inspector()
@@ -803,18 +861,18 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
 
         window.connect("key-press-event", on_key_press)
 
-        # ── Bandeja do sistema ──
+        # ── System tray ──
         tray_active = False
         if enable_tray:
             tray_active = setup_system_tray(window, Gtk)
 
-        # Comportamento ao fechar: minimizar para bandeja se ativa, senão sair
+        # Close behavior: minimize to tray if active, otherwise quit
         def on_delete_event(widget, event):
             _flush_persistence(webview, Gtk)
             if tray_active:
                 widget.hide()
-                return True  # Impede destruição, mantém na bandeja
-            return False  # Permite destruir normalmente
+                return True  # Prevent destruction, keep in tray
+            return False  # Allow normal destruction
 
         def on_destroy(widget):
             _flush_persistence(webview, Gtk)
@@ -823,34 +881,34 @@ def launch_gtk_webkit(url, start_minimized=False, enable_tray=True):
         window.connect("delete-event", on_delete_event)
         window.connect("destroy", on_destroy)
 
-        # ── Instância única e socket listener ──
+        # ── Single instance and socket listener ──
         global _main_window, _main_webview
         _main_window = window
         _main_webview = webview
         start_single_instance_listener(window)
 
-        # ── Exibir janela ──
+        # ── Show window ──
         if start_minimized and tray_active:
-            # Iniciar minimizado para bandeja
+            # Start minimized to tray
             pass
         else:
             window.show_all()
 
-        tray_msg = " + Bandeja" if tray_active else ""
-        print(f"[POMUS] Janela nativa iniciada com sucesso (GTK3 + WebKit2{tray_msg}).")
-        print("[POMUS] Dica: Pressione F11 a qualquer momento para Tela Cheia.")
+        tray_msg = " + Tray" if tray_active else ""
+        print(f"[POMUS] Native window started (GTK3 + WebKit2{tray_msg}).")
+        print("[POMUS] Tip: press F11 at any time for fullscreen.")
         Gtk.main()
         return True
 
     except Exception as e:
-        print(f"[POMUS] GTK/WebKit2 não disponível ({e}). Ativando fallback...")
+        print(f"[POMUS] GTK/WebKit2 not available ({e}). Using fallback...")
         return False
 
 
 def launch_browser_app_mode(url):
     """
-    Fallback: tenta abrir em modo de janela de aplicativo (--app)
-    utilizando Brave, Chrome, Chromium ou Edge.
+    Fallback: tries to open in app window mode (--app)
+    using Brave, Chrome, Chromium or Edge.
     """
     candidate_browsers = [
         "brave",
@@ -866,7 +924,7 @@ def launch_browser_app_mode(url):
         browser_bin = shutil.which(browser_name)
         if browser_bin:
             try:
-                print(f"[POMUS] Abrindo janela de aplicativo via {browser_name}...")
+                print(f"[POMUS] Opening app window via {browser_name}...")
                 proc = subprocess.Popen(
                     [browser_bin, f"--app={url}"],
                     stdout=subprocess.DEVNULL,
@@ -877,45 +935,45 @@ def launch_browser_app_mode(url):
             except Exception:
                 continue
 
-    # Último recurso: navegador web padrão
-    print(f"[POMUS] Abrindo no navegador padrão: {url}")
+    # Last resort: default web browser
+    print(f"[POMUS] Opening in default browser: {url}")
     webbrowser.open(url)
     return True
 
 
-# Comandos de Instalação/Desinstalação Integrados
+# Built-in Install/Uninstall Commands
 
 def run_install():
-    """Executa install.sh a partir do diretório do projeto."""
+    """Runs install.sh from the project directory."""
     script = os.path.join(DIRECTORY, "install.sh")
     if not os.path.isfile(script):
-        print("[POMUS] Erro: install.sh não encontrado.")
+        print("[POMUS] Error: install.sh not found.")
         sys.exit(1)
     os.execv("/bin/bash", ["/bin/bash", script])
 
 
 def run_uninstall():
-    """Executa uninstall.sh a partir do diretório do projeto."""
+    """Runs uninstall.sh from the project directory."""
     script = os.path.join(DIRECTORY, "uninstall.sh")
     if not os.path.isfile(script):
-        print("[POMUS] Erro: uninstall.sh não encontrado.")
+        print("[POMUS] Error: uninstall.sh not found.")
         sys.exit(1)
     os.execv("/bin/bash", ["/bin/bash", script])
 
 
-# Ponto de Entrada Principal
+# Main Entry Point
 
 def main():
-    parser = argparse.ArgumentParser(description="Pomus - Foco e Produtividade")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Porta do servidor local")
-    parser.add_argument("--browser", action="store_true", help="Forçar abertura em navegador comum")
-    parser.add_argument("--minimized", action="store_true", help="Iniciar minimizado na bandeja do sistema")
-    parser.add_argument("--no-tray", action="store_true", help="Desabilitar ícone na bandeja do sistema")
-    parser.add_argument("--install", action="store_true", help="Instalar Pomus como aplicativo do sistema")
-    parser.add_argument("--uninstall", action="store_true", help="Desinstalar Pomus do sistema")
+    parser = argparse.ArgumentParser(description="Pomus - Focus & Productivity")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Local server port")
+    parser.add_argument("--browser", action="store_true", help="Force opening in a regular browser")
+    parser.add_argument("--minimized", action="store_true", help="Start minimized to the system tray")
+    parser.add_argument("--no-tray", action="store_true", help="Disable the system tray icon")
+    parser.add_argument("--install", action="store_true", help="Install Pomus as a system application")
+    parser.add_argument("--uninstall", action="store_true", help="Uninstall Pomus from the system")
     args = parser.parse_args()
 
-    # Comandos de instalação/desinstalação
+    # Install/uninstall commands
     if args.install:
         run_install()
         return
@@ -923,30 +981,30 @@ def main():
         run_uninstall()
         return
 
-    # Garante instância única: se o Pomus já estiver rodando, traz a janela existente para frente e sai
+    # Enforce single instance: if Pomus is already running, bring its window to the front and exit
     if try_activate_existing_instance():
-        print("[POMUS] Aplicativo já está em execução. Trazendo janela para o primeiro plano.")
+        print("[POMUS] App is already running. Bringing its window to the front.")
         return
 
-    # Garante integração XDG (ícones em hicolor e pixmaps, pomus.desktop)
+    # Ensure XDG integration (icons in hicolor and pixmaps, pomus.desktop)
     ensure_desktop_integration()
 
     port = find_available_port(args.port)
     url = f"http://127.0.0.1:{port}"
 
     print("-" * 55)
-    print("POMUS - FOCO E PRODUTIVIDADE")
+    print("POMUS - FOCUS & PRODUCTIVITY")
     print("-" * 55)
-    print(f"Servidor local ativo em: {url}")
-    print(f"Dados armazenados em:    {ACTIVE_DATA_FILE}")
-    print("Pressione Ctrl+C a qualquer momento para encerrar.")
+    print(f"Local server running at: {url}")
+    print(f"Data stored at:          {ACTIVE_DATA_FILE}")
+    print("Press Ctrl+C at any time to quit.")
     print("-" * 55)
 
     server = start_local_server(port)
 
-    # Graceful shutdown com SIGTERM/SIGINT
+    # Graceful shutdown on SIGTERM/SIGINT
     def handle_signal(signum, frame):
-        print("\n[POMUS] Sinal recebido. Encerrando e gravando estado...")
+        print("\n[POMUS] Signal received. Shutting down and saving state...")
         _flush_persistence(_main_webview)
         if os.path.exists(SOCKET_PATH):
             try:
@@ -980,7 +1038,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        print("\n[POMUS] Encerrando servidor e aplicacao.")
+        print("\n[POMUS] Shutting down server and app.")
         _flush_persistence(_main_webview)
         if os.path.exists(SOCKET_PATH):
             try:

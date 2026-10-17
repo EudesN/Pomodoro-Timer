@@ -1,6 +1,10 @@
 /**
  * TIMER ENGINE
  * Drift-proof countdown timer with cycle management, Web Notifications, and mode switching.
+ *
+ * The end of a running session is anchored to the wall clock (Date.now) rather than
+ * performance.now(): the monotonic clock stops while the machine is suspended, which
+ * would leave the timer behind after waking a laptop.
  */
 
 const TimerMode = {
@@ -25,15 +29,6 @@ class PomodoroTimer {
     this.onTick = options.onTick || (() => {});
     this.onStateChange = options.onStateChange || (() => {});
     this.onComplete = options.onComplete || (() => {});
-
-    // Request notification permission if available
-    this._initNotifications();
-  }
-
-  _initNotifications() {
-    if ('Notification' in window && Notification.permission === 'default') {
-      // Defer prompt until user interaction if needed
-    }
   }
 
   requestNotificationPermission() {
@@ -140,7 +135,7 @@ class PomodoroTimer {
     if (this.isRunning) return;
 
     this.isRunning = true;
-    this.targetEndTime = performance.now() + this.timeLeft * 1000;
+    this.targetEndTime = Date.now() + this.timeLeft * 1000;
 
     this.timerId = setInterval(() => {
       this._step();
@@ -153,14 +148,18 @@ class PomodoroTimer {
   pause() {
     if (!this.isRunning) return;
 
+    this._stopTicking();
+    this.onStateChange(this.mode, this.isRunning, this.cycleCount);
+    this._persistState(true);
+  }
+
+  /** Stops the countdown without emitting a state change (used when a session completes). */
+  _stopTicking() {
     this.isRunning = false;
     if (this.timerId) {
       clearInterval(this.timerId);
       this.timerId = null;
     }
-
-    this.onStateChange(this.mode, this.isRunning, this.cycleCount);
-    this._persistState(true);
   }
 
   toggle() {
@@ -185,7 +184,7 @@ class PomodoroTimer {
   }
 
   _step() {
-    const now = performance.now();
+    const now = Date.now();
     const remainingMs = Math.max(0, this.targetEndTime - now);
     const remainingSec = Math.ceil(remainingMs / 1000);
 
@@ -205,7 +204,8 @@ class PomodoroTimer {
     }
 
     if (remainingMs <= 0) {
-      this.pause();
+      // A natural completion is not a pause: listeners get onComplete followed by the next mode
+      this._stopTicking();
       this._handleSessionFinish(true);
     }
   }
@@ -218,9 +218,9 @@ class PomodoroTimer {
   _handleSessionFinish(completedNaturally) {
     const finishedMode = this.mode;
 
-    AudioPlayer.playAlert(this.settings.alarmSound, this.settings.soundVolume);
-
     if (completedNaturally) {
+      AudioPlayer.playAlert(this.settings.alarmSound, this.settings.soundVolume);
+
       if (finishedMode === TimerMode.POMODORO) {
         this.cycleCount++;
         this._sendNotification('Pomodoro Completed!', 'Great work! Time to take a mindful break.');

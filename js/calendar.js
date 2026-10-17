@@ -1,8 +1,7 @@
 /**
  * CALENDAR MODULE - POPOMUS
- * Manages the Calendar tab view displaying all completed tasks of all time.
- * Supports interactive monthly grid, date selection, all-time list, search,
- * sorting, task reopening, and real-time synchronization with timer.
+ * Calendar panel of the stats dialog: every completed task of all time, with an
+ * interactive monthly grid, date selection, all-time list, search, sorting and reopening.
  */
 
 const Calendar = {
@@ -34,13 +33,8 @@ const Calendar = {
   _cacheElements() {
     this.elements = {
       // Views and Navigation
-      container: document.getElementById('statsPanelCalendar') || document.getElementById('calendarViewContainer'),
-      navBadge: document.getElementById('statsModalCalBadge') || document.getElementById('calendarNavBadge'),
-      activeTimerPill: document.getElementById('calendarActiveTimerPill'),
-      timerPillDigits: document.getElementById('calTimerPillDigits'),
-      timerPillMode: document.getElementById('calTimerPillMode'),
-      timerPillTask: document.getElementById('calTimerPillTask'),
-      btnReturnToTimer: document.getElementById('btnCalReturnToTimer'),
+      container: document.getElementById('statsPanelCalendar'),
+      navBadge: document.getElementById('statsModalCalBadge'),
 
       // Summary Stats
       statTotalCompleted: document.getElementById('calStatTotalCompleted'),
@@ -127,15 +121,6 @@ const Calendar = {
         this.renderAllTasksList();
       });
     }
-
-    // Return to Timer button from pill
-    if (el.btnReturnToTimer) {
-      el.btnReturnToTimer.addEventListener('click', () => {
-        if (typeof window.switchMainView === 'function') {
-          window.switchMainView('timer');
-        }
-      });
-    }
   },
 
   changeMonth(delta) {
@@ -198,9 +183,6 @@ const Calendar = {
     if (this.state.activeSubTab === 'all') {
       this.renderAllTasksList(allCompleted);
     }
-
-    // 6. Update Active Timer Pill if running
-    this.updateTimerPill();
   },
 
   /**
@@ -545,19 +527,19 @@ const Calendar = {
   },
 
   /**
-   * Reopen a completed task, putting it back into active tasks in the Timer tab
+   * Reopen a completed task, putting it back into the active list as the selected task.
+   * Goes through Storage so the timer view (app.js) picks the change up.
    */
   reopenTask(task) {
     if (!task || !task.id) return;
 
-    let tasks = Storage.getTasks();
-    const existingIndex = tasks.findIndex(t => t.id === task.id);
+    const tasks = Storage.getTasks();
+    const existing = tasks.find(t => t.id === task.id);
 
-    if (existingIndex !== -1) {
-      tasks[existingIndex].completed = false;
-      tasks[existingIndex].manuallyUnchecked = true;
+    if (existing) {
+      existing.completed = false;
+      existing.manuallyUnchecked = true;
     } else {
-      // Add back to active task list
       tasks.push({
         id: task.id,
         title: task.title,
@@ -569,60 +551,19 @@ const Calendar = {
       });
     }
 
-    Storage.setActiveTaskId(task.id);
+    // Same semantics as unchecking a task in the list: it is no longer "completed"
+    Storage.removeCompletedTaskFromHistory(task.id);
+    // Save the list first so the task exists when it becomes the active one
     Storage.saveTasks(tasks);
+    Storage.setActiveTaskId(task.id);
 
-    // Refresh tasks in app.js if present
-    if (typeof window.renderTasks === 'function') {
-      window.renderTasks();
-    }
-
-    // Close modal if open so user returns to the timer
     const statsDialog = document.getElementById('statsDialog');
     if (statsDialog && statsDialog.open) {
       statsDialog.close();
     }
 
     this.render();
-    this.showToast(`Task "${task.title}" reopened in Timer!`);
-  },
-
-  /**
-   * Live timer banner update when in Calendar view
-   */
-  updateTimerPill(modeName, digits, taskTitle, isRunning) {
-    const el = this.elements;
-    if (!el.activeTimerPill) return;
-
-    if (isRunning && digits) {
-      el.activeTimerPill.style.display = 'flex';
-      if (el.timerPillDigits) el.timerPillDigits.textContent = digits;
-      if (el.timerPillMode) el.timerPillMode.textContent = modeName || 'Pomodoro';
-      if (el.timerPillTask) {
-        el.timerPillTask.textContent = taskTitle ? `• ${taskTitle}` : '';
-      }
-    } else {
-      el.activeTimerPill.style.display = 'none';
-    }
-  },
-
-  /**
-   * Toast notification feedback
-   */
-  showToast(message) {
-    let toast = document.getElementById('calToastNotification');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'calToastNotification';
-      toast.className = 'cal-toast-notification';
-      document.body.appendChild(toast);
-    }
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(this._toastTimeout);
-    this._toastTimeout = setTimeout(() => {
-      toast.classList.remove('show');
-    }, 2800);
+    Toast.show(`"${task.title}" reopened`);
   },
 
   _escapeHtml(str) {

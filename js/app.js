@@ -19,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const iconFullscreenExit = document.getElementById('iconFullscreenExit');
   const btnThemeToggle = document.getElementById('btnThemeToggle');
   const quickThemeMenu = document.getElementById('quickThemeMenu');
+  const quickThemeGrid = document.getElementById('quickThemeGrid');
+  const quickBackgroundGroup = document.getElementById('quickBackgroundGroup');
 
   // Timer Elements
   const tabPomodoro = document.getElementById('tabPomodoro');
@@ -41,11 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const iconTimerPause = document.getElementById('iconTimerPause');
   const btnTimerReset = document.getElementById('btnTimerReset');
   const btnTimerSkip = document.getElementById('btnTimerSkip');
-
-  // Active Task Banner
-  const activeTaskBanner = document.getElementById('activeTaskBanner');
-  const activeTaskTitle = document.getElementById('activeTaskTitle');
-  const activeTaskCycles = document.getElementById('activeTaskCycles');
 
   // Tasks Section Elements
   const btnTasksMenu = document.getElementById('btnTasksMenu');
@@ -73,6 +70,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCloseSettings = document.getElementById('btnCloseSettings');
   const btnCloseStats = document.getElementById('btnCloseStats');
   const btnSaveSettings = document.getElementById('btnSaveSettings');
+  const btnCancelSettings = document.getElementById('btnCancelSettings');
+  const settingsThemeGrid = document.getElementById('settingsThemeGrid');
+  const settingsBackgroundGroup = document.getElementById('settingsBackgroundGroup');
 
   const inputWorkTime = document.getElementById('inputWorkTime');
   const inputShortBreak = document.getElementById('inputShortBreak');
@@ -166,7 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     renderTasks();
-    updateActiveTaskBanner();
     updateTaskEstimate();
   }
 
@@ -189,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Apply Initial Theme
-  applyTheme(settings.theme || 'sunset');
+  applyTheme();
 
   // Persist timer state to disk on window unload or hidden visibility
   window.persistAll = function() {
@@ -219,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
       syncVolumeUI(settings.soundVolume !== undefined ? settings.soundVolume : 0.8);
       iconSoundOn.style.display = soundMuted ? 'none' : 'block';
       iconSoundOff.style.display = soundMuted ? 'block' : 'none';
-      applyTheme(settings.theme || 'sunset');
+      applyTheme();
       renderTasks();
       if (timerRoller) timerRoller.setEnabled(settings.rollingAnimation !== false);
       if (timer && !timer.isRunning) {
@@ -245,20 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         updateCycleDisplay(timer.cycleCount);
       }
-      updateActiveTaskBanner();
-      updateTaskEstimate();
-    } else {
-      // First execution fallback
-      if (tasks.length === 0 && !localStorage.getItem('pomus_tasks')) {
-        const initialTasks = [
-          { id: 'task_ia', title: 'AI Research', actCycles: 7, estCycles: 10, completed: false, createdAt: Date.now() }
-        ];
-        tasks = initialTasks;
-        activeTaskId = 'task_ia';
-        Storage.saveTasks(tasks);
-        Storage.setActiveTaskId(activeTaskId);
-        renderTasks();
-      }
+        updateTaskEstimate();
     }
   });
 
@@ -275,23 +261,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // TIMER INITIALIZATION & ROLLING DIGITS
   let lastTimeLeft = null;
-  let pomoRunStartLeft = null;
+  const focusTracker = new FocusTracker();
 
-  function recordFocusInterval(elapsedSec, isNaturalCompletion = false) {
-    if (elapsedSec <= 0 || !activeTaskId) return;
+  /**
+   * "On pause or completion" tracking: credits focused seconds to the active task and
+   * the session log. `endOfPomodoro` flushes the sub-minute remainder so a pomodoro
+   * that was paused and resumed still logs its full length, exactly once.
+   */
+  function creditFocusTime(elapsedSec, endOfPomodoro = false) {
     const activeTask = tasks.find(t => t.id === activeTaskId);
-    if (!activeTask) return;
-
-    activeTask.focusedSeconds = (activeTask.focusedSeconds || 0) + elapsedSec;
-    activeTask.focusedMinutes = Math.round(activeTask.focusedSeconds / 60);
-
-    const elapsedMins = Math.floor(elapsedSec / 60);
-    if (elapsedMins >= 1 && !isNaturalCompletion) {
-      Storage.logCompletedSession(elapsedMins, activeTask.title);
+    const minutes = focusTracker.takeMinutes(elapsedSec, endOfPomodoro);
+    if (minutes >= 1) {
+      Storage.logCompletedSession(minutes, activeTask ? activeTask.title : 'General Focus');
     }
+    if (activeTask && elapsedSec > 0) {
+      activeTask.focusedSeconds = (activeTask.focusedSeconds || 0) + elapsedSec;
+      activeTask.focusedMinutes = Math.round(activeTask.focusedSeconds / 60);
+    }
+  }
 
-    Storage.saveTasks(tasks);
-    renderTasks();
+  const srAnnouncer = document.getElementById('srAnnouncer');
+  function announce(message) {
+    if (!srAnnouncer) return;
+    // Clearing first makes repeated identical messages be read again
+    srAnnouncer.textContent = '';
+    requestAnimationFrame(() => { srAnnouncer.textContent = message; });
+  }
+
+  function formatClock(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const sec = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  }
+
+  let lastAnnouncedState = null;
+
+  function refreshCalendar() {
     if (window.Calendar && typeof Calendar.render === 'function') {
       Calendar.render();
     }
@@ -333,19 +338,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const modeLabel = timer.mode === TimerMode.POMODORO ? 'Focus' : 'Break';
       document.title = `(${formatted}) ${modeLabel} | Popomus`;
-
-      // Live update Calendar timer pill if active
-      if (window.Calendar && typeof Calendar.updateTimerPill === 'function') {
-        const activeTask = tasks.find(t => t.id === activeTaskId);
-        const activeTitle = activeTask ? activeTask.title : '';
-        const modeLabelPill = timer.mode === TimerMode.POMODORO ? 'Pomodoro' : (timer.mode === TimerMode.SHORT_BREAK ? 'Short Break' : 'Long Break');
-        Calendar.updateTimerPill(modeLabelPill, formatted, activeTitle, timer.isRunning);
-      }
-
-      // Task timer chip updates strictly upon pause, reset or task switch per user request
     },
     onStateChange: (mode, isRunning, cycleCount) => {
       body.setAttribute('data-mode', mode);
+      Themes.syncMetaThemeColor();
 
       [tabPomodoro, tabShortBreak, tabLongBreak].forEach(t => t.classList.remove('active'));
       if (mode === TimerMode.POMODORO) tabPomodoro.classList.add('active');
@@ -359,6 +355,16 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       timerModeBadge.textContent = modeNames[mode] || 'Popomus';
 
+      const modeName = modeNames[mode] || 'Timer';
+      if (lastAnnouncedState) {
+        if (lastAnnouncedState.mode !== mode) {
+          announce(`${modeName}, ${formatClock(timer.timeLeft)}${isRunning ? ', running' : ''}`);
+        } else if (lastAnnouncedState.isRunning !== isRunning) {
+          announce(isRunning ? `${modeName} started` : `${modeName} paused at ${formatClock(timer.timeLeft)}`);
+        }
+      }
+      lastAnnouncedState = { mode, isRunning };
+
       if (isRunning) {
         btnTimerMain.classList.add('running');
         btnTimerMainText.textContent = 'PAUSE';
@@ -366,7 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (iconTimerPause) iconTimerPause.style.display = 'block';
         body.classList.add('timer-running');
         if (mode === TimerMode.POMODORO) {
-          pomoRunStartLeft = timer.timeLeft;
+          focusTracker.start(timer.timeLeft);
         }
       } else {
         btnTimerMain.classList.remove('running');
@@ -375,12 +381,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (iconTimerPause) iconTimerPause.style.display = 'none';
         body.classList.remove('timer-running');
 
-        // Track focus time when timer is paused if mode is POMODORO
-        if (mode === TimerMode.POMODORO && pomoRunStartLeft !== null) {
-          const elapsedSec = Math.max(0, pomoRunStartLeft - timer.timeLeft);
-          pomoRunStartLeft = null;
+        // A pause (also reset, skip or switching modes mid-run) ends the current focus run
+        if (mode === TimerMode.POMODORO && focusTracker.isTracking) {
+          const elapsedSec = focusTracker.stop(timer.timeLeft);
           if (elapsedSec > 0 && settings.taskTimeTrackingMode === 'on_pause_or_complete') {
-            recordFocusInterval(elapsedSec, false);
+            creditFocusTime(elapsedSec);
+            Storage.saveTasks(tasks);
+            renderTasks();
+            refreshCalendar();
           }
         }
 
@@ -390,33 +398,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      // Update Calendar banner on state change
-      if (window.Calendar && typeof Calendar.updateTimerPill === 'function') {
-        const activeTask = tasks.find(t => t.id === activeTaskId);
-        const activeTitle = activeTask ? activeTask.title : '';
-        const mins = Math.floor(timer.timeLeft / 60).toString().padStart(2, '0');
-        const secs = (timer.timeLeft % 60).toString().padStart(2, '0');
-        Calendar.updateTimerPill(modeNames[mode] || 'Pomodoro', `${mins}:${secs}`, activeTitle, isRunning);
-      }
-
       updateCycleDisplay(cycleCount);
     },
     onComplete: (finishedMode) => {
       if (finishedMode === TimerMode.POMODORO) {
-        pomoRunStartLeft = null;
         const activeTask = tasks.find(t => t.id === activeTaskId);
-        const taskTitle = activeTask ? activeTask.title : 'General Focus';
-        Storage.logCompletedSession(settings.workTime, taskTitle);
+        const finalRunSec = focusTracker.stop(0);
+
+        if (settings.taskTimeTrackingMode === 'on_pause_or_complete') {
+          // Earlier runs of this pomodoro were credited on each pause; add only the last one
+          creditFocusTime(finalRunSec, true);
+        } else {
+          Storage.logCompletedSession(settings.workTime, activeTask ? activeTask.title : 'General Focus');
+        }
 
         if (activeTask) {
           activeTask.actCycles = (activeTask.actCycles || 0) + 1;
           delete activeTask.manuallyUnchecked;
-
-          if (settings.taskTimeTrackingMode === 'on_pause_or_complete') {
-            const sessionSecs = (settings.workTime || 25) * 60;
-            activeTask.focusedSeconds = (activeTask.focusedSeconds || 0) + sessionSecs;
-            activeTask.focusedMinutes = Math.round(activeTask.focusedSeconds / 60);
-          }
 
           // Auto-mark completed when target cycles reached
           if (activeTask.actCycles >= (activeTask.estCycles || 1)) {
@@ -424,23 +422,18 @@ document.addEventListener('DOMContentLoaded', () => {
             activeTask.completedAt = activeTask.completedAt || Date.now();
             activeTask.completedDate = Storage._formatLocalDate(new Date(activeTask.completedAt));
             Storage.recordCompletedTask(activeTask);
-            if (window.Calendar && typeof Calendar.render === 'function') {
-              Calendar.render();
-            }
+            refreshCalendar();
           }
           if (settings.individualTimers && activeTask.timerState) {
             activeTask.timerState.cycleCount = timer.cycleCount;
           }
           Storage.saveTasks(tasks);
           renderTasks();
-          updateActiveTaskBanner();
         }
 
         if (statsDialog.open) {
           StatsChart.renderChart();
-          if (window.Calendar && typeof Calendar.render === 'function') {
-            Calendar.render();
-          }
+          refreshCalendar();
         }
       }
     }
@@ -530,14 +523,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Sound toggle button in header
+  let lastAudibleVolume = settings.soundVolume > 0 ? settings.soundVolume : 0.8;
   btnSoundToggle.addEventListener('click', () => {
     soundMuted = !soundMuted;
     if (soundMuted) {
+      if (settings.soundVolume > 0) lastAudibleVolume = settings.soundVolume;
       settings.soundVolume = 0;
       iconSoundOn.style.display = 'none';
       iconSoundOff.style.display = 'block';
     } else {
-      settings.soundVolume = 0.8;
+      settings.soundVolume = lastAudibleVolume;
       iconSoundOn.style.display = 'block';
       iconSoundOff.style.display = 'none';
     }
@@ -590,51 +585,99 @@ document.addEventListener('DOMContentLoaded', () => {
     iconFullscreenExit.style.display = isFull ? 'block' : 'none';
   });
 
-  // THEMES & COLOR SWITCHING (Inspirations Palettes)
-  function applyTheme(themeKey, customColors = null) {
-    settings.theme = themeKey;
-    const root = document.documentElement;
+  // THEMES & COLOR SWITCHING (see js/themes.js)
 
-    if (themeKey === 'custom') {
-      const p = customColors?.pomo || settings.customColorPomo || '#da4d4f';
-      const s = customColors?.short || settings.customColorShort || '#ea845e';
-      const l = customColors?.long || settings.customColorLong || '#f39336';
-      root.style.setProperty('--theme-pomo-primary', p);
-      root.style.setProperty('--theme-short-primary', s);
-      root.style.setProperty('--theme-long-primary', l);
-    } else {
-      const preset = THEME_PRESETS[themeKey] || THEME_PRESETS.sunset;
-      root.style.setProperty('--theme-pomo-primary', preset.pomo);
-      root.style.setProperty('--theme-short-primary', preset.short);
-      root.style.setProperty('--theme-long-primary', preset.long);
+  /**
+   * Paints the UI with the theme described by `source` (defaults to saved settings).
+   * Passing a draft object previews a theme without persisting it.
+   */
+  function applyTheme(source = settings) {
+    const key = Themes.apply(source.theme, source, source.themeBackground);
+    if (source === settings) {
+      settings.theme = key;
+      settings.themeBackground = Themes.resolveBackground(settings.themeBackground);
     }
-
-    // Refresh active mode color
     const currentMode = (timer && timer.mode) ? timer.mode : 'pomodoro';
     body.setAttribute('data-mode', currentMode);
+    Themes.syncMetaThemeColor();
+    renderQuickThemeMenu();
   }
 
-  // Quick theme toggle popover
+  function themeOptionsHtml(activeKey, source, itemClass, role) {
+    const entries = Object.entries(THEME_PRESETS).map(([key, preset]) => ({ key, name: preset.name, colors: preset }));
+    entries.push({ key: 'custom', name: 'Custom', colors: Themes.colorsFor('custom', source) });
+    return entries.map(({ key, name, colors }) => {
+      const active = key === activeKey;
+      return `
+        <button type="button" class="${itemClass} ${active ? 'active' : ''}" data-theme="${key}" role="${role}" aria-checked="${active}">
+          <span class="theme-swatch ${key === 'custom' ? 'is-custom' : ''}" aria-hidden="true">${Themes.swatchHtml(colors)}</span>
+          <span class="theme-option-name">${escapeHtml(name)}</span>
+          <svg class="theme-option-check" viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </button>
+      `;
+    }).join('');
+  }
+
+  function backgroundOptionsHtml(activeBg) {
+    return Object.entries(Themes.backgrounds).map(([key, bg]) => `
+      <button type="button" class="segmented-btn ${key === activeBg ? 'active' : ''}" data-background="${key}" role="radio" aria-checked="${key === activeBg}">${bg.name}</button>
+    `).join('');
+  }
+
+  function renderQuickThemeMenu() {
+    if (!quickThemeGrid) return;
+    quickThemeGrid.innerHTML = themeOptionsHtml(Themes.resolveKey(settings.theme), settings, 'theme-palette-btn', 'menuitemradio');
+    quickBackgroundGroup.innerHTML = backgroundOptionsHtml(Themes.resolveBackground(settings.themeBackground));
+  }
+
+  function positionQuickThemeMenu() {
+    const rect = btnThemeToggle.getBoundingClientRect();
+    const menuWidth = quickThemeMenu.offsetWidth || 280;
+    const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
+    quickThemeMenu.style.top = `${rect.bottom + 8}px`;
+    quickThemeMenu.style.left = `${left}px`;
+  }
+
+  function setQuickThemeMenuOpen(open) {
+    quickThemeMenu.hidden = !open;
+    btnThemeToggle.setAttribute('aria-expanded', String(open));
+    if (open) positionQuickThemeMenu();
+  }
+
   btnThemeToggle.addEventListener('click', (e) => {
     e.stopPropagation();
-    const isVisible = quickThemeMenu.style.display === 'block';
-    quickThemeMenu.style.display = isVisible ? 'none' : 'block';
+    setQuickThemeMenuOpen(quickThemeMenu.hidden);
   });
 
   quickThemeMenu.addEventListener('click', (e) => {
-    const btn = e.target.closest('.theme-palette-btn');
-    if (!btn) return;
-    const chosen = btn.dataset.theme;
-    applyTheme(chosen);
+    e.stopPropagation();
+    const themeBtn = e.target.closest('[data-theme]');
+    const bgBtn = e.target.closest('[data-background]');
+    if (themeBtn) {
+      settings.theme = themeBtn.dataset.theme;
+    } else if (bgBtn) {
+      settings.themeBackground = bgBtn.dataset.background;
+    } else if (e.target.closest('#btnQuickThemeMore')) {
+      setQuickThemeMenuOpen(false);
+      openSettingsDialog();
+      document.getElementById('settingsAppearance')?.scrollIntoView({ block: 'start' });
+      return;
+    } else {
+      return;
+    }
+    applyTheme();
     Storage.saveSettings(settings);
-    quickThemeMenu.style.display = 'none';
+  });
+
+  window.addEventListener('resize', () => {
+    if (!quickThemeMenu.hidden) positionQuickThemeMenu();
   });
 
   document.addEventListener('click', (e) => {
-    if (!quickThemeMenu.contains(e.target) && e.target !== btnThemeToggle) {
-      quickThemeMenu.style.display = 'none';
+    if (!quickThemeMenu.hidden && !quickThemeMenu.contains(e.target) && !btnThemeToggle.contains(e.target)) {
+      setQuickThemeMenuOpen(false);
     }
-    if (!tasksDropdownMenu.contains(e.target) && e.target !== btnTasksMenu) {
+    if (!tasksDropdownMenu.contains(e.target) && !btnTasksMenu.contains(e.target)) {
       tasksDropdownMenu.style.display = 'none';
     }
   });
@@ -649,8 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
           No tasks yet. Click "Add Task" to plan your focus.
         </div>
       `;
-      updateActiveTaskBanner();
-      updateTaskEstimate();
+        updateTaskEstimate();
       return;
     }
 
@@ -709,6 +751,10 @@ document.addEventListener('DOMContentLoaded', () => {
       taskEl.className = `task-item ${isSelected ? 'active-focus' : ''} ${isCompleted ? 'completed' : ''} ${isEditing ? 'is-editing' : ''}`;
       taskEl.dataset.id = task.id;
       taskEl.setAttribute('draggable', 'true');
+      taskEl.setAttribute('role', 'listitem');
+      taskEl.tabIndex = 0;
+      taskEl.setAttribute('aria-current', isSelected ? 'true' : 'false');
+      taskEl.setAttribute('aria-label', `${task.title}, ${act} of ${est} pomodoros${isCompleted ? ', completed' : ''}${isSelected ? ', active' : ''}`);
 
       taskEl.innerHTML = `
         <div class="task-item-left">
@@ -849,20 +895,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    updateActiveTaskBanner();
     updateTaskEstimate();
-  }
-
-  function updateActiveTaskBanner() {
-    if (!activeTaskBanner) return;
-    const activeTask = tasks.find(t => t.id === activeTaskId);
-    if (activeTask) {
-      activeTaskBanner.style.display = 'flex';
-      if (activeTaskTitle) activeTaskTitle.textContent = activeTask.title;
-      if (activeTaskCycles) activeTaskCycles.textContent = `${activeTask.actCycles || 0}/${activeTask.estCycles || 1} pomos`;
-    } else {
-      activeTaskBanner.style.display = 'none';
-    }
   }
 
   /**
@@ -1017,8 +1050,15 @@ document.addEventListener('DOMContentLoaded', () => {
     tasksDropdownMenu.style.display = 'none';
   });
 
-  btnClearAllTasks.addEventListener('click', () => {
-    if (confirm('Are you sure you want to delete all tasks?')) {
+  btnClearAllTasks.addEventListener('click', async () => {
+    tasksDropdownMenu.style.display = 'none';
+    const confirmed = await Confirm.ask({
+      title: 'Delete all tasks?',
+      message: 'Every task in your list will be removed. Completed tasks stay in the calendar history.',
+      confirmText: 'Delete All',
+      danger: true
+    });
+    if (confirmed) {
       tasks = [];
       activeTaskId = null;
       editingTaskId = null;
@@ -1112,8 +1152,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         editingTaskId = null;
         Storage.saveTasks(tasks);
-        updateActiveTaskBanner();
-        updateTaskEstimate();
+            updateTaskEstimate();
         renderTasks();
       }
       return;
@@ -1157,7 +1196,38 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Handle keyboard submission (Enter / Escape) inside inline edit drawer
+  function moveTask(taskId, delta) {
+    const from = tasks.findIndex(t => t.id === taskId);
+    const to = from + delta;
+    if (from === -1 || to < 0 || to >= tasks.length) return;
+    const [moved] = tasks.splice(from, 1);
+    tasks.splice(to, 0, moved);
+    Storage.saveTasks(tasks);
+    renderTasks();
+    tasksList.querySelector(`.task-item[data-id="${CSS.escape(taskId)}"]`)?.focus();
+    announce(`${moved.title} moved to position ${to + 1} of ${tasks.length}`);
+  }
+
   tasksList.addEventListener('keydown', (e) => {
+    // Keyboard support on the task card itself (not its inner buttons)
+    if (e.target.classList.contains('task-item')) {
+      const taskId = e.target.dataset.id;
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        moveTask(taskId, e.key === 'ArrowUp' ? -1 : 1);
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        switchActiveTask(taskId);
+        tasksList.querySelector(`.task-item[data-id="${CSS.escape(taskId)}"]`)?.focus();
+      } else if (!e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        const items = [...tasksList.querySelectorAll('.task-item')];
+        const idx = items.indexOf(e.target);
+        items[idx + (e.key === 'ArrowUp' ? -1 : 1)]?.focus();
+      }
+      return;
+    }
     if (e.target.matches('[data-edit-title]')) {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -1173,7 +1243,69 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // MODALS & DIALOG MANAGEMENT
-  btnSettings.addEventListener('click', () => {
+
+  // Appearance draft: edited live in the settings dialog, persisted only on Save
+  let themeDraft = null;
+  let settingsSaved = false;
+
+  function previewThemeDraft() {
+    applyTheme({ ...settings, ...themeDraft });
+    renderSettingsAppearance();
+  }
+
+  function renderSettingsAppearance() {
+    const draftSource = { ...settings, ...themeDraft };
+    settingsThemeGrid.innerHTML = themeOptionsHtml(themeDraft.theme, draftSource, 'theme-card-option', 'radio');
+    settingsBackgroundGroup.innerHTML = backgroundOptionsHtml(themeDraft.themeBackground);
+    customColorSettings.hidden = themeDraft.theme !== 'custom';
+    [
+      [colorPomoInput, themeDraft.customColorPomo],
+      [colorShortInput, themeDraft.customColorShort],
+      [colorLongInput, themeDraft.customColorLong]
+    ].forEach(([input, value]) => {
+      if (input.value !== value) input.value = value;
+      const hexLabel = document.querySelector(`[data-hex-for="${input.id}"]`);
+      if (hexLabel) hexLabel.textContent = value.toUpperCase();
+    });
+  }
+
+  settingsThemeGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-theme]');
+    if (!btn) return;
+    const chosen = btn.dataset.theme;
+    // First switch to Custom starts from the theme the user was on instead of arbitrary defaults
+    if (chosen === 'custom' && themeDraft.theme !== 'custom' && !settings.customColorsEdited) {
+      const base = Themes.colorsFor(themeDraft.theme, settings);
+      themeDraft.customColorPomo = base.pomo;
+      themeDraft.customColorShort = base.short;
+      themeDraft.customColorLong = base.long;
+    }
+    themeDraft.theme = chosen;
+    previewThemeDraft();
+  });
+
+  settingsBackgroundGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-background]');
+    if (!btn) return;
+    themeDraft.themeBackground = btn.dataset.background;
+    previewThemeDraft();
+  });
+
+  [
+    [colorPomoInput, 'customColorPomo'],
+    [colorShortInput, 'customColorShort'],
+    [colorLongInput, 'customColorLong']
+  ].forEach(([input, key]) => {
+    input.addEventListener('input', () => {
+      themeDraft[key] = input.value;
+      themeDraft.customColorsEdited = true;
+      previewThemeDraft();
+    });
+  });
+
+  btnSettings.addEventListener('click', () => openSettingsDialog());
+
+  function openSettingsDialog() {
     inputWorkTime.value = settings.workTime;
     inputShortBreak.value = settings.shortBreakTime;
     inputLongBreak.value = settings.longBreakTime;
@@ -1188,23 +1320,32 @@ document.addEventListener('DOMContentLoaded', () => {
       selectTaskTimeTracking.value = settings.taskTimeTrackingMode || 'on_complete';
     }
     selectAlarmSound.value = settings.alarmSound;
+    CustomSelect.refreshAll();
     toggleTickSound.checked = !!settings.tickSound;
     if (toggleRollingAnimation) toggleRollingAnimation.checked = (settings.rollingAnimation !== false);
     syncVolumeUI(settings.soundVolume !== undefined ? settings.soundVolume : 0.8);
 
-    // Theme radios
-    const currentTheme = settings.theme || 'sunset';
-    const radios = document.querySelectorAll('input[name="settingsTheme"]');
-    radios.forEach(r => {
-      r.checked = (r.value === currentTheme);
-    });
+    const customColors = Themes.colorsFor('custom', settings);
+    themeDraft = {
+      theme: Themes.resolveKey(settings.theme),
+      themeBackground: Themes.resolveBackground(settings.themeBackground),
+      customColorPomo: customColors.pomo,
+      customColorShort: customColors.short,
+      customColorLong: customColors.long,
+      customColorsEdited: !!settings.customColorsEdited
+    };
+    renderSettingsAppearance();
 
-    customColorSettings.style.display = currentTheme === 'custom' ? 'flex' : 'none';
-    colorPomoInput.value = settings.customColorPomo || '#da4d4f';
-    colorShortInput.value = settings.customColorShort || '#ea845e';
-    colorLongInput.value = settings.customColorLong || '#f39336';
+    settingsSaved = false;
+    if (!settingsDialog.open) settingsDialog.showModal();
+  }
 
-    settingsDialog.showModal();
+  // Closing without saving (X, Cancel, Esc or backdrop) discards the appearance preview
+  settingsDialog.addEventListener('close', () => {
+    if (!settingsSaved) {
+      applyTheme();
+      updateTaskEstimate();
+    }
   });
 
   // Dynamic estimate update when timer duration setting is edited
@@ -1213,14 +1354,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (v && v > 0) {
       updateTaskEstimate(v);
     }
-  });
-
-  // Settings theme radio change
-  document.querySelectorAll('input[name="settingsTheme"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      const val = e.target.value;
-      customColorSettings.style.display = val === 'custom' ? 'flex' : 'none';
-    });
   });
 
   // Sound Preview Button (safely passes isPreview = true using current volume slider)
@@ -1236,7 +1369,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const longVal = Math.max(1, parseInt(inputLongBreak.value, 10) || 15);
     const cyclesVal = Math.max(1, parseInt(inputCyclesToLong.value, 10) || 4);
 
-    const checkedTheme = document.querySelector('input[name="settingsTheme"]:checked')?.value || 'sunset';
     const volPct = inputSoundVolume ? parseInt(inputSoundVolume.value, 10) : 80;
     const volVal = Math.min(1, Math.max(0, volPct / 100));
     const individualVal = toggleIndividualTimers ? toggleIndividualTimers.checked : false;
@@ -1258,10 +1390,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alarmSound: selectAlarmSound.value,
       tickSound: toggleTickSound.checked,
       rollingAnimation: toggleRollingAnimation ? toggleRollingAnimation.checked : true,
-      theme: checkedTheme,
-      customColorPomo: colorPomoInput.value,
-      customColorShort: colorShortInput.value,
-      customColorLong: colorLongInput.value
+      ...themeDraft
     };
 
     if (individualChanged && individualVal) {
@@ -1314,22 +1443,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     Storage.saveSettings(settings);
     timer.updateSettings(settings);
-    applyTheme(checkedTheme, {
-      pomo: colorPomoInput.value,
-      short: colorShortInput.value,
-      long: colorLongInput.value
-    });
+    applyTheme();
 
     updateCycleDisplay(timer.cycleCount);
     updateTaskEstimate();
     renderTasks();
+    settingsSaved = true;
     settingsDialog.close();
   });
 
-  btnCloseSettings.addEventListener('click', () => {
-    updateTaskEstimate();
-    settingsDialog.close();
-  });
+  btnCloseSettings.addEventListener('click', () => settingsDialog.close());
+  btnCancelSettings.addEventListener('click', () => settingsDialog.close());
 
   // Stats Modal
   btnStats.addEventListener('click', () => {
@@ -1363,11 +1487,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  btnClearHistory.addEventListener('click', () => {
-    if (confirm('Are you sure you want to clear your focus history? This cannot be undone.')) {
-      Storage.clearHistory();
-      StatsChart.renderChart(7);
-    }
+  btnClearHistory.addEventListener('click', async () => {
+    const confirmed = await Confirm.ask({
+      title: 'Clear focus history?',
+      message: 'All logged focus sessions and chart data will be permanently deleted. Your tasks and settings are kept. This cannot be undone.',
+      confirmText: 'Clear History',
+      danger: true
+    });
+    if (!confirmed) return;
+    Storage.clearHistory();
+    const activePeriod = document.querySelector('.period-btn.active');
+    StatsChart.renderChart(activePeriod ? (parseInt(activePeriod.dataset.days, 10) || 7) : 7);
   });
 
   // Export / Import Backup
@@ -1392,7 +1522,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof content === 'string') {
         const success = Storage.importData(content);
         if (success) {
-          alert('Data imported successfully!');
           settings = Storage.getSettings();
           tasks = Storage.getTasks();
           activeTaskId = Storage.getActiveTaskId();
@@ -1400,7 +1529,7 @@ document.addEventListener('DOMContentLoaded', () => {
           AudioPlayer.setMuted(soundMuted);
           iconSoundOn.style.display = soundMuted ? 'none' : 'block';
           iconSoundOff.style.display = soundMuted ? 'block' : 'none';
-          applyTheme(settings.theme || 'sunset');
+          applyTheme();
           renderTasks();
           if (settings.individualTimers && activeTaskId) {
             const actTask = tasks.find(t => t.id === activeTaskId);
@@ -1412,13 +1541,17 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             timer.updateSettings(settings);
           }
+          settingsSaved = true;
           settingsDialog.close();
+          Toast.show('Data imported successfully');
         } else {
-          alert('Import error: Invalid file format.');
+          Toast.show('Import failed: this file is not a valid Popomus backup', { type: 'error', duration: 4000 });
         }
       }
     };
     reader.readAsText(file);
+    // Allow importing the same file again later
+    inputImportFile.value = '';
   });
 
   // Dialog backdrop light dismiss
@@ -1430,11 +1563,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // KEYBOARD SHORTCUTS (Active in background without visual hints)
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !quickThemeMenu.hidden) {
+      setQuickThemeMenuOpen(false);
+      btnThemeToggle.focus();
+      return;
+    }
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      return;
+    }
+    // Shortcuts must not leak into open dialogs (e.g. Space toggling the timer behind Settings)
+    if (settingsDialog.open || statsDialog.open) {
       return;
     }
 
     if (e.code === 'Space') {
+      // Space keeps its native meaning on focused buttons, options and task cards
+      if (document.activeElement && document.activeElement !== document.body &&
+          document.activeElement.matches('button, a, [tabindex], [role="option"], label')) {
+        return;
+      }
       e.preventDefault();
       timer.toggle();
     } else if (e.altKey && e.code === 'KeyR') {
@@ -1449,75 +1596,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // CANVAS CONFETTI
-  function launchConfetti() {
-    const canvas = document.getElementById('confettiCanvas');
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    const colors = ['#ffffff', '#faecc9', '#f39336', '#da4d4f', '#dd7057', '#f4a971'];
-    const particles = [];
-    const count = 120;
-
-    for (let i = 0; i < count; i++) {
-      particles.push({
-        x: canvas.width / 2,
-        y: canvas.height / 2,
-        vx: (Math.random() - 0.5) * 16,
-        vy: (Math.random() - 0.8) * 16,
-        size: Math.random() * 8 + 5,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        rotation: Math.random() * 360,
-        rotationSpeed: (Math.random() - 0.5) * 10,
-        alpha: 1,
-        decay: Math.random() * 0.015 + 0.01
-      });
-    }
-
-    let animId;
-    function animate() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      let aliveCount = 0;
-
-      particles.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.35;
-        p.vx *= 0.98;
-        p.rotation += p.rotationSpeed;
-        p.alpha -= p.decay;
-
-        if (p.alpha > 0) {
-          aliveCount++;
-          ctx.save();
-          ctx.translate(p.x, p.y);
-          ctx.rotate((p.rotation * Math.PI) / 180);
-          ctx.globalAlpha = Math.max(0, p.alpha);
-          ctx.fillStyle = p.color;
-          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
-          ctx.restore();
-        }
-      });
-
-      if (aliveCount > 0) {
-        animId = requestAnimationFrame(animate);
-      } else {
-        cancelAnimationFrame(animId);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    }
-
-    animate();
-  }
-
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
   }
+
+  // Tasks have a single source of truth: Storage. When another module (e.g. the calendar's
+  // "Reopen") saves a different task list or picks a task, adopt it instead of overwriting it later.
+  window.addEventListener('pomus:tasks-changed', (e) => {
+    if (e.detail && e.detail.tasks === tasks) return;
+    tasks = Storage.getTasks();
+    if (editingTaskId && !tasks.some(t => t.id === editingTaskId)) editingTaskId = null;
+    renderTasks();
+  });
+
+  window.addEventListener('pomus:active-task-changed', (e) => {
+    const id = e.detail && e.detail.id;
+    if (id && id !== activeTaskId && tasks.some(t => t.id === id)) {
+      switchActiveTask(id);
+    }
+  });
 
   // Initial render
   renderTasks();

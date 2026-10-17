@@ -1,0 +1,15 @@
+{
+  "name": "popomus",
+  "version": "2.6.0",
+  "description": "Pomodoro focus timer with task management, themes and productivity analytics",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:js && npm run test:py",
+    "test:js": "node --test \"tests/js/*.test.js\"",
+    "test:py": "python3 -m unittest discover -s tests/python -v",
+    "check": "for f in js/*.js; do node --check \"$f\" || exit 1; done && python3 -m py_compile app.py"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
